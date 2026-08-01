@@ -28,7 +28,7 @@ export interface Playlist {
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
-export type ActiveTab = 'home' | 'search' | 'library' | 'liked' | 'playlist' | 'lyrics';
+export type ActiveTab = 'home' | 'search' | 'library' | 'liked' | 'playlist' | 'lyrics' | 'admin';
 
 export interface ToastMessage {
   id: string;

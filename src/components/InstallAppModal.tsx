@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Download, Share, PlusSquare, MonitorSmartphone, Smartphone, CheckCircle2, Clock } from 'lucide-react';
+import { X, Download, MonitorSmartphone, CheckCircle2, Clock } from 'lucide-react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -11,15 +11,6 @@ interface InstallAppModalProps {
   onClose: () => void;
   deferredPrompt: BeforeInstallPromptEvent | null;
   onInstalled: () => void;
-}
-
-function isIOS(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent;
-  const iOSDevice = /iPad|iPhone|iPod/.test(ua);
-  // iPadOS 13+ reports as Mac, but has touch support
-  const iPadOS13 = ua.includes('Macintosh') && typeof document !== 'undefined' && 'ontouchend' in document;
-  return iOSDevice || iPadOS13;
 }
 
 function isAndroid(): boolean {
@@ -43,7 +34,6 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
 }) => {
   const [installed, setInstalled] = useState(false);
   const [busy, setBusy] = useState(false);
-  const ios = isIOS();
   const android = isAndroid();
   const alreadyStandalone = isStandalone();
 
@@ -97,41 +87,6 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
               <p className="text-white font-bold">You're all set!</p>
               <p className="text-zinc-400 text-sm">
                 This app is already installed and running on your device.
-              </p>
-            </div>
-          ) : ios ? (
-            <div className="flex flex-col gap-4">
-              <div className="flex items-start gap-3 bg-zinc-800/60 rounded-xl p-4">
-                <Smartphone className="w-5 h-5 text-[#1DB954] shrink-0 mt-0.5" />
-                <p className="text-zinc-300 text-sm">
-                  iPhone and iPad don't support one-tap installs from Safari, but you
-                  can add this app to your Home Screen in a few taps — it will open
-                  full-screen, just like a regular app.
-                </p>
-              </div>
-
-              <ol className="flex flex-col gap-3 text-sm text-zinc-300">
-                <li className="flex items-center gap-3">
-                  <span className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-white shrink-0">1</span>
-                  <span className="flex items-center gap-1.5">
-                    Tap the <Share className="w-4 h-4 inline text-[#1DB954]" /> <b>Share</b> button in Safari's toolbar.
-                  </span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <span className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-white shrink-0">2</span>
-                  <span className="flex items-center gap-1.5">
-                    Scroll down and tap <PlusSquare className="w-4 h-4 inline text-[#1DB954]" /> <b>Add to Home Screen</b>.
-                  </span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <span className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-white shrink-0">3</span>
-                  <span>Tap <b>Add</b> in the top corner — done!</span>
-                </li>
-              </ol>
-
-              <p className="text-zinc-500 text-xs">
-                Note: this must be done from <b>Safari</b> — Chrome and other iOS browsers
-                can't add apps to your Home Screen due to Apple's restrictions.
               </p>
             </div>
           ) : android ? (

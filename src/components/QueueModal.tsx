@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Play, Music, ListMusic, Radio, Trash2 } from 'lucide-react';
+import { X, Play, Music, ListMusic, Radio, Trash2, Shuffle } from 'lucide-react';
 import { Track } from '../types';
 
 interface QueueModalProps {
@@ -12,6 +12,7 @@ interface QueueModalProps {
   isAutoplay?: boolean;
   onToggleAutoplay?: () => void;
   onRemoveFromQueue?: (index: number) => void;
+  isShuffle?: boolean;
 }
 
 export const QueueModal: React.FC<QueueModalProps> = ({
@@ -23,7 +24,8 @@ export const QueueModal: React.FC<QueueModalProps> = ({
   onPlayTrack,
   isAutoplay = false,
   onToggleAutoplay,
-  onRemoveFromQueue
+  onRemoveFromQueue,
+  isShuffle = false,
 }) => {
   if (!isOpen) return null;
 
@@ -147,12 +149,20 @@ export const QueueModal: React.FC<QueueModalProps> = ({
             </div>
           )}
 
-          {/* Up Next (Main Playlist) */}
+          {/* Up Next (Main Playlist or Shuffled Queue) */}
           {queue.length > 0 && (
             <div>
-              <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3 px-2">
-                Up Next From List
-              </h4>
+              <div className="flex items-center justify-between mb-3 px-2">
+                <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                  {isShuffle ? 'Up Next (Shuffled Queue)' : 'Up Next From List'}
+                </h4>
+                {isShuffle && (
+                  <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#1DB954]/20 text-[#1DB954] border border-[#1DB954]/30">
+                    <Shuffle className="w-3 h-3" />
+                    Shuffled
+                  </span>
+                )}
+              </div>
               <div className="space-y-1">
                 {queue.map((track) => (
                   <div

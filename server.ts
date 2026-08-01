@@ -99,6 +99,52 @@ async function startServer() {
     }
   });
 
+  // Admin: delete a song from the Hugging Face dataset repo (write API key
+  // is supplied per-request by the client, never stored on this server).
+  app.post("/api/admin-delete", async (req, res) => {
+    try {
+      const { user, repo, path: filePath, apiKey } = req.body || {};
+
+      if (!user || !repo || !filePath) {
+        return res.status(400).json({ error: "Missing user, repo, or path" });
+      }
+      if (!apiKey) {
+        return res.status(400).json({ error: "Missing Hugging Face API key" });
+      }
+
+      const commitUrl = `https://huggingface.co/api/datasets/${encodeURIComponent(user)}/${encodeURIComponent(repo)}/commit/main`;
+      const basename = filePath.replace(/\.[^./]+$/, "");
+      const ops = [
+        { key: "header", value: { summary: `Delete ${filePath} via AYUSHFLIX admin panel` } },
+        { key: "deletedFile", value: { path: filePath } },
+        { key: "deletedFile", value: { path: `${basename}.jpg` } },
+      ];
+      const ndjson = ops.map((op) => JSON.stringify(op)).join("\n");
+
+      const response = await fetch(commitUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/x-ndjson",
+        },
+        body: ndjson,
+      });
+
+      const text = await response.text();
+
+      if (!response.ok) {
+        return res.status(response.status).json({
+          error: `Hugging Face rejected the delete (${response.status}): ${text.slice(0, 300)}`,
+        });
+      }
+
+      return res.json({ ok: true });
+    } catch (err: any) {
+      console.error("Admin delete error:", err);
+      return res.status(500).json({ error: err?.message || "Internal Server Error" });
+    }
+  });
+
   // Health check
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", hf_config: { user: "CoolJaat", repo: "my-music-library" } });

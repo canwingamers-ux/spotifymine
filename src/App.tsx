@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ActiveTab,
   Playlist,
@@ -9,7 +9,8 @@ import {
 import {
   parseTrackMetadata,
   HF_CONFIG,
-  SUPPORTED_AUDIO_EXTENSIONS
+  SUPPORTED_AUDIO_EXTENSIONS,
+  shuffleArray
 } from './utils/audioUtils';
 import { Storage } from './utils/storage';
 import { Sidebar } from './components/Sidebar';
@@ -61,8 +62,55 @@ export default function App() {
   const [isMaximizedPlayerOpen, setIsMaximizedPlayerOpen] = useState(false);
   const [maximizedInitialTab, setMaximizedInitialTab] = useState<'art' | 'lyrics'>('art');
 
-  // Audio Tracks State
+  // Notifications Toast State
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Helper to add notification toasts
+  const addToast = useCallback((message: string, type: 'info' | 'error' | 'success' = 'info') => {
+    const id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
+
+  // Audio Tracks 
   const [tracks, setTracks] = useState<Track[]>([]);
+  // 100-song Today's Mix state (shuffled once per session/tracks load, allowing removal)
+  const [todaysMixTrackIds, setTodaysMixTrackIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (tracks.length > 0 && todaysMixTrackIds.length === 0) {
+      // Fill up to 100 tracks with random selection across passes
+      const hundredTracks: Track[] = [];
+      while (hundredTracks.length < 100 && tracks.length > 0) {
+        const shuffledPass: Track[] = shuffleArray(tracks);
+        for (const t of shuffledPass) {
+          if (hundredTracks.length < 100) hundredTracks.push(t);
+        }
+      }
+      setTodaysMixTrackIds(hundredTracks.map((t, idx) => `${t.id}_${idx}`));
+    }
+  }, [tracks]);
+
+  // Construct actual track objects for Today's Mix
+  const todaysMixTracks = useMemo(() => {
+    return todaysMixTrackIds
+      .map((compositeId) => {
+        const originalId = compositeId.split('_')[0];
+        const track = tracks.find((t) => t.id === originalId);
+        if (!track) return null;
+        // Ensure unique ID instance so removal targets exact entry
+        return { ...track, instanceId: compositeId };
+      })
+      .filter((t): t is (Track & { instanceId: string }) => t !== null);
+  }, [todaysMixTrackIds, tracks]);
+
+  const handleRemoveFromTodaysMix = useCallback((instanceId: string) => {
+    setTodaysMixTrackIds((prev) => prev.filter((id) => id !== instanceId));
+    addToast('Removed song from Today\'s Mix', 'info');
+  }, [addToast]);
+
   const [isLoadingHF, setIsLoadingHF] = useState(false);
 
   // Playlists & Local State
@@ -76,33 +124,32 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState<number>(() => Storage.getVolume());
   const [isMuted, setIsMutedState] = useState<boolean>(() => Storage.getMuted());
-  const [isShuffle, setIsShuffle] = useState(false);
+  const [isShuffle, setIsShuffle] = useState(true);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [userQueue, setUserQueue] = useState<Track[]>([]);
-  const [isAutoplay, setIsAutoplay] = useState(false);
+  const [isAutoplay, setIsAutoplay] = useState(true);
 
   // Playlist Modals State
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState(false);
   const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<Track | null>(null);
 
-  // Notifications Toast State
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-  // Audio Ref — rendered as real DOM element below for iOS Safari compatibility
+  // Audio Ref — rendered as a real DOM element below
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  // iOS Safari requires a user gesture to unlock audio. We track whether the
-  // audio context has been unlocked so we can trigger it on first tap.
-  const iosUnlockedRef = useRef(false);
 
-  // Helper to add notification toasts
-  const addToast = useCallback((message: string, type: 'info' | 'error' | 'success' = 'info') => {
-    const id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
+  // Chunked-streaming buffered progress (drives the grey "downloaded" bar)
+  const [bufferedPercent, setBufferedPercent] = useState(0);
+
+  // Auto-generated playlists: play counts & recently played (persisted locally)
+  const [playCounts, setPlayCounts] = useState<Record<string, number>>(() => Storage.getPlayCounts());
+  const [recentlyPlayedIds, setRecentlyPlayedIds] = useState<string[]>(() => Storage.getRecentlyPlayed());
+
+  const trackPlayStart = useCallback((track: Track) => {
+    setPlayCounts(Storage.incrementPlayCount(track.id));
+    setRecentlyPlayedIds(Storage.addRecentlyPlayed(track.id));
   }, []);
+
+
 
   // Firebase Auth Observer & Real-time Playlist Listener
   useEffect(() => {
@@ -174,10 +221,12 @@ export default function App() {
 
     if (nextTrack) {
       setCurrentTrack(nextTrack);
+      trackPlayStart(nextTrack);
+      setBufferedPercent(0);
       if (audioRef.current) {
         audioRef.current.src = nextTrack.audioUrl;
         audioRef.current.currentTime = 0;
-        audioRef.current.load(); // Required on iOS Safari after src change
+        audioRef.current.load();
         audioRef.current
           .play()
           .then(() => {
@@ -191,7 +240,7 @@ export default function App() {
           });
       }
     }
-  }, [tracks, currentTrack, isShuffle, userQueue, isAutoplay]);
+  }, [tracks, currentTrack, isShuffle, userQueue, isAutoplay, trackPlayStart]);
 
   // Initialize HTML5 Audio Element event listeners
   // The <audio> element itself is rendered in the JSX below (required for iOS Safari)
@@ -207,6 +256,17 @@ export default function App() {
       setDuration(audio.duration || 0);
     };
 
+    const handleProgress = () => {
+      try {
+        if (audio.buffered.length > 0 && audio.duration) {
+          const end = audio.buffered.end(audio.buffered.length - 1);
+          setBufferedPercent(Math.min(100, (end / audio.duration) * 100));
+        }
+      } catch {
+        // buffered ranges can throw briefly during src swaps — ignore
+      }
+    };
+
     const handleAudioError = (e: Event) => {
       console.error('Audio playback error:', e);
       addToast('Error loading audio stream. Skipping to next track...', 'error');
@@ -218,11 +278,13 @@ export default function App() {
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('progress', handleProgress);
     audio.addEventListener('error', handleAudioError);
 
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('progress', handleProgress);
       audio.removeEventListener('error', handleAudioError);
     };
   }, [addToast, handleNextTrack]);
@@ -306,7 +368,7 @@ export default function App() {
             };
           });
 
-          const combined = hfTracks;
+          const combined = shuffleArray(hfTracks);
           setTracks(combined);
         } else {
           setTracks([]);
@@ -343,22 +405,6 @@ export default function App() {
     }
   }, [tracks]);
 
-  // Helper to unlock iOS audio on first user gesture
-  const unlockIOSAudio = useCallback(() => {
-    if (iosUnlockedRef.current || !audioRef.current) return;
-    const audio = audioRef.current;
-    // Play a silent buffer to satisfy iOS gesture requirement
-    audio.muted = true;
-    audio.play().then(() => {
-      audio.pause();
-      audio.muted = isMuted;
-      audio.currentTime = 0;
-      iosUnlockedRef.current = true;
-    }).catch(() => {
-      // Silently ignore — not yet in gesture context
-    });
-  }, [isMuted]);
-
   // Helper to check if error is a benign audio play interruption
   const isBenignPlayError = (err: any) => {
     return (
@@ -371,12 +417,9 @@ export default function App() {
 
   // Play Specific Track
   const handlePlayTrack = useCallback(
-    (track: Track) => {
+    (track: Track, customQueue?: Track[]) => {
       const audio = audioRef.current;
       if (!audio) return;
-
-      // Unlock iOS audio context on first user interaction
-      if (!iosUnlockedRef.current) unlockIOSAudio();
 
       let willPlay = false;
 
@@ -400,9 +443,19 @@ export default function App() {
         }
       } else {
         setCurrentTrack(track);
+        trackPlayStart(track);
+        setBufferedPercent(0);
         audio.src = track.audioUrl;
         audio.currentTime = 0;
-        audio.load(); // Required on iOS Safari — must call load() after src change before play()
+        
+        if (customQueue && customQueue.length > 0) {
+          const trackIdx = customQueue.findIndex((t) => t.id === track.id);
+          if (trackIdx !== -1) {
+            setUserQueue(customQueue.slice(trackIdx + 1));
+          }
+        }
+
+        audio.load();
         audio
           .play()
           .then(() => {
@@ -424,7 +477,7 @@ export default function App() {
         setIsMaximizedPlayerOpen(true);
       }
     },
-    [currentTrack, isPlaying, addToast]
+    [currentTrack, isPlaying, addToast, trackPlayStart]
   );
 
   const handleAddToQueue = useCallback((track: Track) => {
@@ -502,9 +555,17 @@ export default function App() {
 
   // Toggle Shuffle & Repeat Modes
   const handleToggleShuffle = useCallback(() => {
-    setIsShuffle((prev) => !prev);
-    addToast(isShuffle ? 'Shuffle Off' : 'Shuffle On', 'info');
-  }, [isShuffle, addToast]);
+    setIsShuffle((prev) => {
+      const nextShuffle = !prev;
+      if (nextShuffle) {
+        setIsQueueOpen(true);
+        addToast('Shuffle On — Opening Up Next Queue', 'info');
+      } else {
+        addToast('Shuffle Off', 'info');
+      }
+      return nextShuffle;
+    });
+  }, [addToast]);
 
   const handleToggleRepeat = useCallback(() => {
     const modes: RepeatMode[] = ['off', 'all', 'one'];
@@ -676,21 +737,15 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-black text-white font-sans overflow-hidden select-none">
-      {/* Hidden audio element — must be a real DOM element for iOS Safari.
-          playsInline prevents iOS from hijacking playback to the system player.
-          preload="auto" allows buffering so play() succeeds after load(). */}
       <audio
         ref={audioRef}
         playsInline
         preload="auto"
         style={{ display: 'none' }}
       />
-      {/* Toast Notifications */}
       <Toast toasts={toasts} onDismiss={dismissToast} />
 
-      {/* Main Workspace Layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar */}
         <Sidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -701,7 +756,6 @@ export default function App() {
           setActivePlaylistId={setActivePlaylistId}
         />
 
-        {/* Content View Area */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#121212] overflow-hidden">
           <Header
             activeTab={activeTab}
@@ -712,6 +766,7 @@ export default function App() {
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onLogOut={handleLogOut}
             onOpenInstallModal={() => setIsInstallModalOpen(true)}
+            onOpenAdmin={() => setActiveTab('admin')}
           />
 
           <MainView
@@ -724,27 +779,42 @@ export default function App() {
             likedTrackIds={likedTrackIds}
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
-            onPlayTrack={handlePlayTrack}
+            onPlayTrack={(track, customQueue) => {
+              handlePlayTrack(track, customQueue);
+            }}
             onToggleLike={handleToggleLike}
             playlists={playlists}
             activePlaylistId={activePlaylistId}
             onRequestCreatePlaylist={() => setIsCreatePlaylistOpen(true)}
             onAddToPlaylist={(track) => setAddToPlaylistTrack(track)}
+            onAddToQueue={(track) => {
+              setUserQueue((prev) => [...prev, track]);
+              addToast(`Added "${track.title}" to Queue`, 'success');
+            }}
             onRemoveFromPlaylist={handleRemoveTrackFromPlaylist}
             onDeletePlaylist={handleDeletePlaylist}
-            onSelectPlaylist={handleSelectPlaylist}
+            onSelectPlaylist={(id) => {
+              setActivePlaylistId(id);
+              setActiveTab('playlist');
+            }}
             onSeek={handleSeek}
             onPlayPause={handleTogglePlayPause}
+            playCounts={playCounts}
+            recentlyPlayedIds={recentlyPlayedIds}
+            onRefreshLibrary={fetchHFMusicLibrary}
+            addToast={addToast}
+            todaysMixTracks={todaysMixTracks}
+            onRemoveFromTodaysMix={handleRemoveFromTodaysMix}
           />
         </div>
       </div>
 
-      {/* Bottom Persistent Player Bar */}
       <PlayerBar
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         currentTime={currentTime}
         duration={duration}
+        bufferedPercent={bufferedPercent}
         volume={volume}
         isMuted={isMuted}
         isShuffle={isShuffle}
@@ -779,6 +849,7 @@ export default function App() {
         isPlaying={isPlaying}
         currentTime={currentTime}
         duration={duration}
+        bufferedPercent={bufferedPercent}
         volume={volume}
         isMuted={isMuted}
         isShuffle={isShuffle}
@@ -806,7 +877,7 @@ export default function App() {
       <QueueModal
         isOpen={isQueueOpen}
         onClose={() => setIsQueueOpen(false)}
-        queue={tracks.filter((t) => t.id !== currentTrack?.id)}
+        queue={isShuffle ? shuffleArray(tracks.filter((t) => t.id !== currentTrack?.id)) : tracks.filter((t) => t.id !== currentTrack?.id)}
         userQueue={userQueue}
         currentTrack={currentTrack}
         onPlayTrack={(track) => {
@@ -816,6 +887,7 @@ export default function App() {
         isAutoplay={isAutoplay}
         onToggleAutoplay={() => setIsAutoplay(!isAutoplay)}
         onRemoveFromQueue={(index) => setUserQueue((prev) => prev.filter((_, i) => i !== index))}
+        isShuffle={isShuffle}
       />
 
       {/* Create Custom Playlist Modal */}

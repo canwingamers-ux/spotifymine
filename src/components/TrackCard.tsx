@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Play, Pause, Heart, Music, Disc, Plus, ListPlus } from 'lucide-react';
 import { Track } from '../types';
 import { generateCoverArt } from '../utils/audioUtils';
+import { useLongPress } from '../utils/useLongPress';
+import { TrackContextMenu } from './TrackContextMenu';
 
 interface TrackCardProps {
   track: Track;
@@ -25,10 +27,13 @@ export const TrackCard: React.FC<TrackCardProps> = ({
   onAddToQueue,
 }) => {
   const fallbackSvg = generateCoverArt(track.title, track.artist, track.gradientColors);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const longPress = useLongPress((pos) => setMenuPos(pos));
 
   return (
     <div
       onClick={() => onPlay(track)}
+      {...longPress}
       className="group relative bg-[#181818] hover:bg-[#282828] p-3 sm:p-4 rounded-xl transition-all duration-300 cursor-pointer flex flex-col gap-3 border border-transparent hover:border-zinc-700/40 shadow-md hover:shadow-xl active:scale-95 sm:active:scale-100"
     >
       {/* Cover Art Container */}
@@ -129,6 +134,19 @@ export const TrackCard: React.FC<TrackCardProps> = ({
           {track.artist || 'CoolJaat'}
         </p>
       </div>
+
+      {menuPos && (
+        <TrackContextMenu
+          track={track}
+          position={menuPos}
+          isLiked={isLiked}
+          onClose={() => setMenuPos(null)}
+          onPlay={onPlay}
+          onAddToQueue={onAddToQueue}
+          onAddToPlaylist={onAddToPlaylist}
+          onToggleLike={onToggleLike}
+        />
+      )}
     </div>
   );
 };

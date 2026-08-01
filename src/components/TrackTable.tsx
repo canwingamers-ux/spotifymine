@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Play, Clock, Heart, Music, Plus, Trash2, ListPlus } from 'lucide-react';
 import { Track } from '../types';
 import { formatTime, generateCoverArt } from '../utils/audioUtils';
+import { useLongPress } from '../utils/useLongPress';
+import { TrackContextMenu } from './TrackContextMenu';
 
 interface TrackTableProps {
   tracks: Track[];
@@ -57,19 +59,65 @@ export const TrackTable: React.FC<TrackTableProps> = ({
 
         {/* Table Body */}
         <tbody className="divide-y divide-zinc-900/50 text-sm">
-          {tracks.map((track, index) => {
-            const isCurrent = currentTrackId === track.id;
-            const isLiked = likedTrackIds.includes(track.id);
-            const fallbackSvg = generateCoverArt(track.title, track.artist, track.gradientColors);
+          {tracks.map((track, index) => (
+            <TrackRow
+              key={track.id}
+              track={track}
+              index={index}
+              isCurrent={currentTrackId === track.id}
+              isPlaying={isPlaying}
+              isLiked={likedTrackIds.includes(track.id)}
+              onPlayTrack={onPlayTrack}
+              onToggleLike={onToggleLike}
+              onAddToPlaylist={onAddToPlaylist}
+              onRemoveFromPlaylist={onRemoveFromPlaylist}
+              onAddToQueue={onAddToQueue}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
-            return (
-              <tr
-                key={track.id}
-                onClick={() => onPlayTrack(track)}
-                className={`group hover:bg-zinc-800/60 rounded-lg transition-colors cursor-pointer ${
-                  isCurrent ? 'bg-zinc-800/40' : ''
-                }`}
-              >
+interface TrackRowProps {
+  track: Track;
+  index: number;
+  isCurrent: boolean;
+  isPlaying: boolean;
+  isLiked: boolean;
+  onPlayTrack: (track: Track) => void;
+  onToggleLike: (trackId: string, e: React.MouseEvent) => void;
+  onAddToPlaylist?: (track: Track) => void;
+  onRemoveFromPlaylist?: (trackId: string) => void;
+  onAddToQueue?: (track: Track) => void;
+}
+
+const TrackRow: React.FC<TrackRowProps> = ({
+  track,
+  index,
+  isCurrent,
+  isPlaying,
+  isLiked,
+  onPlayTrack,
+  onToggleLike,
+  onAddToPlaylist,
+  onRemoveFromPlaylist,
+  onAddToQueue,
+}) => {
+  const fallbackSvg = generateCoverArt(track.title, track.artist, track.gradientColors);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const longPress = useLongPress((pos) => setMenuPos(pos));
+
+  return (
+    <>
+      <tr
+        onClick={() => onPlayTrack(track)}
+        {...longPress}
+        className={`group hover:bg-zinc-800/60 rounded-lg transition-colors cursor-pointer ${
+          isCurrent ? 'bg-zinc-800/40' : ''
+        }`}
+      >
                 {/* Index / Play Button / Equalizer */}
                 <td className="py-3 px-4 text-center w-12 font-mono text-xs">
                   {isCurrent ? (
@@ -197,11 +245,24 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                     )}
                   </div>
                 </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+      </tr>
+
+      {menuPos && (
+        <tr>
+          <td colSpan={6} className="p-0 border-none">
+            <TrackContextMenu
+              track={track}
+              position={menuPos}
+              isLiked={isLiked}
+              onClose={() => setMenuPos(null)}
+              onPlay={onPlayTrack}
+              onAddToQueue={onAddToQueue}
+              onAddToPlaylist={onAddToPlaylist}
+              onToggleLike={onToggleLike}
+            />
+          </td>
+        </tr>
+      )}
+    </>
   );
 };

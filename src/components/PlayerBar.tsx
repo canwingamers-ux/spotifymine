@@ -24,6 +24,7 @@ interface PlayerBarProps {
   isPlaying: boolean;
   currentTime: number;
   duration: number;
+  bufferedPercent?: number;
   volume: number;
   isMuted: boolean;
   isShuffle: boolean;
@@ -49,6 +50,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   isPlaying,
   currentTime,
   duration,
+  bufferedPercent = 0,
   volume,
   isMuted,
   isShuffle,
@@ -107,8 +109,13 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
     <footer className="fixed bottom-[60px] md:bottom-0 left-0 right-0 h-16 md:h-24 bg-[#181818]/95 md:bg-[#121212]/95 backdrop-blur-xl border-t border-zinc-800/80 px-3 md:px-6 flex items-center justify-between gap-2 md:gap-4 select-none z-40 text-white shadow-2xl">
       {/* Top thin progress bar for mobile view */}
       <div className="md:hidden absolute top-0 left-0 right-0 h-1 bg-zinc-800">
+        {/* Grey chunk-download indicator */}
         <div
-          className="h-full bg-[#1DB954] transition-all duration-150"
+          className="absolute inset-y-0 left-0 bg-zinc-500/60 transition-all duration-300"
+          style={{ width: `${bufferedPercent}%` }}
+        />
+        <div
+          className="h-full bg-[#1DB954] transition-all duration-150 relative"
           style={{ width: `${progressPercent}%` }}
         />
       </div>
@@ -144,10 +151,10 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
           className="flex flex-col min-w-0 pr-1 cursor-pointer group"
           title="Click to expand player"
         >
-          <span className="text-xs md:text-sm font-bold text-white truncate group-hover:text-[#1DB954] group-hover:underline transition-colors">
+          <span className="text-xs sm:text-sm md:text-base font-extrabold text-white truncate group-hover:text-[#1DB954] transition-colors tracking-tight">
             {currentTrack.title}
           </span>
-          <span className="text-[11px] md:text-xs text-zinc-400 truncate group-hover:text-zinc-200">
+          <span className="text-[11px] md:text-xs text-zinc-400 truncate group-hover:text-zinc-200 font-medium">
             {currentTrack.artist || 'CoolJaat'}
           </span>
         </div>
@@ -290,6 +297,11 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
             {/* Background Track */}
             <div className="w-full h-1 group-hover:h-1.5 bg-zinc-700/80 rounded-full overflow-hidden transition-all relative">
+              {/* Grey chunk-download indicator — shows how much audio has streamed in */}
+              <div
+                className="absolute inset-y-0 left-0 bg-zinc-400/50 transition-all duration-300"
+                style={{ width: `${bufferedPercent}%` }}
+              />
               {/* Active Progress */}
               <div
                 className={`h-full transition-colors ${

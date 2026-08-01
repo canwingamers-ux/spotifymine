@@ -37,8 +37,13 @@ functions in the `api/` folder, and a `vercel.json` was added so Vercel:
 and static build instead.
 
 No environment variables are required for the song list/audio to load, since that data comes
-from a public Hugging Face dataset. If you later add Gemini features, set `GEMINI_API_KEY`
-in the Vercel project's Environment Variables settings.
+from a public Hugging Face dataset.
+
+`package.json` was also trimmed of unused leftover dependencies from the original AI Studio
+template (`@google/genai`, `@distube/ytdl-core`, `youtube-sr`, `yt-search`, `dotenv`, `motion`)
+and the stray `bun.lock` was removed so Vercel unambiguously installs with npm. Run
+`npm install` once locally (or let Vercel do it on first deploy) to generate a fresh
+`package-lock.json`.
 
 ## App icon
 

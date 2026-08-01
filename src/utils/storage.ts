@@ -7,6 +7,9 @@ const KEYS = {
   LAST_PLAYED: 'spotify_last_played_v1',
   PLAYLISTS: 'spotify_playlists_v1',
   UPLOADED_TRACKS: 'spotify_uploaded_tracks_v1',
+  PLAY_COUNTS: 'spotify_play_counts_v1',
+  RECENTLY_PLAYED: 'spotify_recently_played_v1',
+  HF_ADMIN_KEY: 'spotify_hf_admin_key_v1',
 };
 
 export const Storage = {
@@ -121,6 +124,69 @@ export const Storage = {
       localStorage.setItem(KEYS.UPLOADED_TRACKS, JSON.stringify(tracks));
     } catch (e) {
       console.error('Failed to save uploaded tracks', e);
+    }
+  },
+
+  // ---- Play Counts (powers "Top Played" auto-generated playlist) ----
+  getPlayCounts(): Record<string, number> {
+    try {
+      const data = localStorage.getItem(KEYS.PLAY_COUNTS);
+      return data ? JSON.parse(data) : {};
+    } catch {
+      return {};
+    }
+  },
+
+  incrementPlayCount(trackId: string): Record<string, number> {
+    const counts = this.getPlayCounts();
+    counts[trackId] = (counts[trackId] || 0) + 1;
+    try {
+      localStorage.setItem(KEYS.PLAY_COUNTS, JSON.stringify(counts));
+    } catch (e) {
+      console.error('Failed to save play counts', e);
+    }
+    return counts;
+  },
+
+  // ---- Recently Played (most-recent first, capped) ----
+  getRecentlyPlayed(): string[] {
+    try {
+      const data = localStorage.getItem(KEYS.RECENTLY_PLAYED);
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  addRecentlyPlayed(trackId: string): string[] {
+    const existing = this.getRecentlyPlayed().filter((id) => id !== trackId);
+    const updated = [trackId, ...existing].slice(0, 50);
+    try {
+      localStorage.setItem(KEYS.RECENTLY_PLAYED, JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to save recently played', e);
+    }
+    return updated;
+  },
+
+  // ---- Admin: Hugging Face write-access API key (kept in this browser only) ----
+  getHfAdminKey(): string {
+    try {
+      return localStorage.getItem(KEYS.HF_ADMIN_KEY) || '';
+    } catch {
+      return '';
+    }
+  },
+
+  setHfAdminKey(key: string): void {
+    try {
+      if (key) {
+        localStorage.setItem(KEYS.HF_ADMIN_KEY, key);
+      } else {
+        localStorage.removeItem(KEYS.HF_ADMIN_KEY);
+      }
+    } catch (e) {
+      console.error('Failed to save admin key', e);
     }
   }
 };

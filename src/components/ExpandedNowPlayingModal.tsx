@@ -29,6 +29,7 @@ interface ExpandedNowPlayingModalProps {
   isPlaying: boolean;
   currentTime: number;
   duration: number;
+  bufferedPercent?: number;
   volume: number;
   isMuted: boolean;
   isShuffle: boolean;
@@ -59,6 +60,7 @@ export const ExpandedNowPlayingModal: React.FC<ExpandedNowPlayingModalProps> = (
   isPlaying,
   currentTime,
   duration,
+  bufferedPercent = 0,
   volume,
   isMuted,
   isShuffle,
@@ -277,6 +279,11 @@ export const ExpandedNowPlayingModal: React.FC<ExpandedNowPlayingModalProps> = (
 
             {/* Background & Progress Track */}
             <div className="w-full h-full bg-zinc-800 rounded-full overflow-hidden relative">
+              {/* Grey chunk-download indicator */}
+              <div
+                className="absolute inset-y-0 left-0 bg-zinc-500/50 transition-all duration-300 rounded-full"
+                style={{ width: `${bufferedPercent}%` }}
+              />
               <div
                 className="absolute top-0 bottom-0 left-0 bg-[#1DB954] group-hover:bg-[#1ed760] transition-all rounded-full"
                 style={{ width: `${progressPercent}%` }}
