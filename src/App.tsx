@@ -89,8 +89,11 @@ export default function App() {
   // Notifications Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Audio Ref
+  // Audio Ref — rendered as real DOM element below for iOS Safari compatibility
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // iOS Safari requires a user gesture to unlock audio. We track whether the
+  // audio context has been unlocked so we can trigger it on first tap.
+  const iosUnlockedRef = useRef(false);
 
   // Helper to add notification toasts
   const addToast = useCallback((message: string, type: 'info' | 'error' | 'success' = 'info') => {
@@ -174,6 +177,7 @@ export default function App() {
       if (audioRef.current) {
         audioRef.current.src = nextTrack.audioUrl;
         audioRef.current.currentTime = 0;
+        audioRef.current.load(); // Required on iOS Safari after src change
         audioRef.current
           .play()
           .then(() => {
@@ -189,14 +193,11 @@ export default function App() {
     }
   }, [tracks, currentTrack, isShuffle, userQueue, isAutoplay]);
 
-  // Initialize HTML5 Audio Element
+  // Initialize HTML5 Audio Element event listeners
+  // The <audio> element itself is rendered in the JSX below (required for iOS Safari)
   useEffect(() => {
-    if (!audioRef.current) {
-      const newAudio = new Audio();
-      newAudio.preload = 'metadata';
-      audioRef.current = newAudio;
-    }
     const audio = audioRef.current;
+    if (!audio) return;
 
     const handleTimeUpdate = () => {
       setCurrentTime(audio.currentTime);
@@ -342,6 +343,22 @@ export default function App() {
     }
   }, [tracks]);
 
+  // Helper to unlock iOS audio on first user gesture
+  const unlockIOSAudio = useCallback(() => {
+    if (iosUnlockedRef.current || !audioRef.current) return;
+    const audio = audioRef.current;
+    // Play a silent buffer to satisfy iOS gesture requirement
+    audio.muted = true;
+    audio.play().then(() => {
+      audio.pause();
+      audio.muted = isMuted;
+      audio.currentTime = 0;
+      iosUnlockedRef.current = true;
+    }).catch(() => {
+      // Silently ignore — not yet in gesture context
+    });
+  }, [isMuted]);
+
   // Helper to check if error is a benign audio play interruption
   const isBenignPlayError = (err: any) => {
     return (
@@ -357,6 +374,9 @@ export default function App() {
     (track: Track) => {
       const audio = audioRef.current;
       if (!audio) return;
+
+      // Unlock iOS audio context on first user interaction
+      if (!iosUnlockedRef.current) unlockIOSAudio();
 
       let willPlay = false;
 
@@ -382,6 +402,7 @@ export default function App() {
         setCurrentTrack(track);
         audio.src = track.audioUrl;
         audio.currentTime = 0;
+        audio.load(); // Required on iOS Safari — must call load() after src change before play()
         audio
           .play()
           .then(() => {
@@ -655,6 +676,15 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-black text-white font-sans overflow-hidden select-none">
+      {/* Hidden audio element — must be a real DOM element for iOS Safari.
+          playsInline prevents iOS from hijacking playback to the system player.
+          preload="auto" allows buffering so play() succeeds after load(). */}
+      <audio
+        ref={audioRef}
+        playsInline
+        preload="auto"
+        style={{ display: 'none' }}
+      />
       {/* Toast Notifications */}
       <Toast toasts={toasts} onDismiss={dismissToast} />
 
