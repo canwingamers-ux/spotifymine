@@ -365,7 +365,7 @@ export default function App() {
   }, [currentTrack, currentTime]);
 
   // Fetch Hugging Face Dataset Tree & Apply Strict Poster / Metadata Rules
-  const fetchHFMusicLibrary = useCallback(async () => {
+  const fetchHFMusicLibrary = useCallback(async (isRetry: boolean = false) => {
     setIsLoadingHF(true);
 
     try {
@@ -373,10 +373,21 @@ export default function App() {
         `/api/hf-tree?user=${encodeURIComponent(HF_CONFIG.HF_USER)}&repo=${encodeURIComponent(HF_CONFIG.HF_REPO)}`
       );
 
-      let data: any[] = [];
-      if (response && response.ok) {
-        data = await response.json();
+      if (!response.ok) {
+        // Try to surface the server's actual error message (api/hf-tree.ts
+        // returns { error, user, repo } JSON on failure) instead of a blank
+        // "something went wrong".
+        let serverMessage = `Server returned ${response.status}`;
+        try {
+          const errBody = await response.json();
+          if (errBody?.error) serverMessage = errBody.error;
+        } catch {
+          // response wasn't JSON — keep the generic status message
+        }
+        throw new Error(serverMessage);
       }
+
+      const data: any[] = await response.json();
 
       if (Array.isArray(data)) {
         const audioFiles = data.filter((item: any) => {
@@ -413,12 +424,24 @@ export default function App() {
         setTracks([]);
       }
     } catch (err: any) {
-      console.warn('Hugging Face dataset offline or empty:', err?.message || err);
+      const message = err?.message || 'Unknown error';
+      console.warn('Hugging Face dataset fetch failed:', message);
+
+      if (!isRetry) {
+        // Transient blips (cold start, brief network hiccup) often succeed
+        // on a second try — retry once, silently, before bothering the user.
+        setTimeout(() => fetchHFMusicLibrary(true), 1500);
+        return;
+      }
+
+      // Second attempt also failed — this is a real problem, not a blip.
+      // Show it instead of silently leaving the home page empty.
       setTracks([]);
+      addToast(`Couldn't load your music library: ${message}`, 'error');
     } finally {
       setIsLoadingHF(false);
     }
-  }, []);
+  }, [addToast]);
 
   // Mount Fetch
   useEffect(() => {
