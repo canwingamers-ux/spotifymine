@@ -102,7 +102,7 @@ export function parseTrackMetadata(path: string): {
 
     return {
       title: title || 'Untitled Track',
-      artist: artist || 'CoolJaat',
+      artist: artist || 'SpotifyMine',
       basename,
       posterUrl,
       audioUrl,
@@ -117,7 +117,7 @@ export function parseTrackMetadata(path: string): {
 
     return {
       title: title || 'Untitled Track',
-      artist: artist || 'CoolJaat',
+      artist: artist || 'SpotifyMine',
       basename,
       posterUrl,
       audioUrl,
@@ -128,7 +128,7 @@ export function parseTrackMetadata(path: string): {
   const title = formatWords(cleanStr);
   return {
     title: title || 'Untitled Track',
-    artist: 'CoolJaat',
+    artist: 'SpotifyMine',
     basename,
     posterUrl,
     audioUrl,
