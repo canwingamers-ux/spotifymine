@@ -49,7 +49,7 @@ export function parseBasic(path: string): { title: string; artist: string } {
   return { title: formatWords(cleanStr) || "Untitled Track", artist: "CoolJaat" };
 }
 
-async function fetchWithTimeout(url: string, timeoutMs = 20000): Promise<Response> {
+async function fetchWithTimeout(url: string, timeoutMs = 6000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -69,8 +69,17 @@ async function fetchWithTimeout(url: string, timeoutMs = 20000): Promise<Respons
  * This is written to NEVER throw once it has collected at least one page —
  * any failure mid-pagination (bad/relative next-page URL, malformed page,
  * slow response, unexpected shape) just stops the loop and returns
- * whatever was already gathered, instead of taking down the whole
- * /api/hf-tree response with an uncaught error.
+ * whatever was already gathered.
+ *
+ * Just as important: this respects a strict internal TIME_BUDGET_MS, well
+ * under the serverless function's configured maxDuration. Sequential
+ * pagination across many pages can otherwise add up to more than the
+ * function is allowed to run — and when Vercel hard-kills a function for
+ * running too long, it terminates the whole process, which bypasses every
+ * try/catch below and shows up to the browser as a bare 500 with no useful
+ * error body at all. Staying well inside the time budget guarantees this
+ * always returns a real response (even if partial) instead of ever risking
+ * that outcome.
  */
 export async function fetchFullTree(
   user: string = HF_USER,
@@ -84,8 +93,14 @@ export async function fetchFullTree(
   let triedSimpleFallback = false;
   let pageCount = 0;
   const MAX_PAGES = 200; // safety cap — well beyond any realistic library size
+  const TIME_BUDGET_MS = 8000; // stay safely under Vercel Hobby's real 10s limit
+  const startedAt = Date.now();
 
   while (url && pageCount < MAX_PAGES) {
+    if (Date.now() - startedAt > TIME_BUDGET_MS) {
+      console.warn(`HF tree pagination hit its time budget after ${pageCount} page(s); returning ${all.length} entries collected so far.`);
+      break;
+    }
     pageCount++;
 
     let response: Response;
@@ -140,6 +155,7 @@ export async function fetchFullTree(
     url = nextUrl;
   }
 
+  console.log(`HF tree fetch: ${pageCount} page(s), ${all.length} total entries, ${Date.now() - startedAt}ms`);
   return all;
 }
 
