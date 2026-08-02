@@ -2,8 +2,6 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { Readable } from "stream";
-import { generateAiPlaylists } from "./api/_lib/aiPlaylists";
-import type { AiPlaylistsResult } from "./api/_lib/aiPlaylists";
 import { fetchFullTree, HF_USER, HF_REPO } from "./api/_lib/hf";
 
 async function startServer() {
@@ -82,29 +80,6 @@ async function startServer() {
     } catch (err: any) {
       console.error("Proxy audio error:", err);
       res.status(500).send("Internal Server Error");
-    }
-  });
-
-  // AI-Generated Themed Playlists (Haryanvi Mix, Love Mix, Hindi Mix, Punjabi
-  // Mix, etc.) — regenerated once per day via Gemini, cached in memory here
-  // so every request during the day (from any local session) sees the same
-  // result, mirroring the 24h edge cache used on Vercel.
-  let aiPlaylistsCache: { result: AiPlaylistsResult; expiresAt: number } | null = null;
-  app.get("/api/ai-playlists", async (_req, res) => {
-    try {
-      if (aiPlaylistsCache && aiPlaylistsCache.expiresAt > Date.now()) {
-        return res.json(aiPlaylistsCache.result);
-      }
-      const result = await generateAiPlaylists(process.env.GEMINI_API_KEY);
-      aiPlaylistsCache = { result, expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
-      return res.json(result);
-    } catch (err: any) {
-      console.error("AI playlists error:", err);
-      return res.status(200).json({
-        generatedAt: new Date().toISOString(),
-        playlists: [],
-        note: err?.message || "Failed to generate AI playlists.",
-      });
     }
   });
 

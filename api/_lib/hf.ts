@@ -1,4 +1,4 @@
-// Shared by api/ai-playlists.ts (Vercel) and server.ts (local dev).
+// Shared by api/hf-tree.ts (Vercel) and server.ts (local dev).
 // Files under an underscore-prefixed folder are never turned into their own
 // Vercel routes, so this is safe to import without becoming /api/_lib/hf.
 

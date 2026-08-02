@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ActiveTab,
-  AiPlaylist,
   Playlist,
   RepeatMode,
   ToastMessage,
@@ -87,10 +86,6 @@ export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   // 100-song Today's Mix state (shuffled once per session/tracks load, allowing removal)
   const [todaysMixTrackIds, setTodaysMixTrackIds] = useState<string[]>([]);
-  // AI-generated daily playlists (Haryanvi Mix, Love Mix, Hindi Mix, Punjabi Mix...)
-  // — same for every visitor for the day, regenerated once every 24h server-side.
-  const [aiPlaylists, setAiPlaylists] = useState<AiPlaylist[]>([]);
-
   useEffect(() => {
     if (tracks.length > 0 && todaysMixTrackIds.length === 0) {
       // Fill up to 100 tracks with random selection across passes
@@ -445,40 +440,6 @@ export default function App() {
   useEffect(() => {
     fetchHFMusicLibrary();
   }, [fetchHFMusicLibrary]);
-
-  // Fetch AI-Generated Daily Playlists
-  // (Haryanvi Mix / Love Mix / Hindi Mix / Punjabi Mix, etc. — server picks
-  // and caches these once per day; every visitor sees the same set.)
-  const [rawAiPlaylists, setRawAiPlaylists] = useState<
-    { id: string; name: string; emoji: string; description: string; paths: string[] }[]
-  >([]);
-
-  useEffect(() => {
-    fetch('/api/ai-playlists')
-      .then((res) => (res.ok ? res.json() : { playlists: [] }))
-      .then((data) => setRawAiPlaylists(Array.isArray(data?.playlists) ? data.playlists : []))
-      .catch(() => setRawAiPlaylists([]));
-  }, []);
-
-  // Resolve each AI playlist's file paths against the loaded track library.
-  // Re-runs whenever the library or the raw AI playlist data changes.
-  useEffect(() => {
-    if (tracks.length === 0 || rawAiPlaylists.length === 0) {
-      setAiPlaylists([]);
-      return;
-    }
-    const byPath = new Map(tracks.map((t) => [t.path, t]));
-    const resolved: AiPlaylist[] = rawAiPlaylists
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        emoji: p.emoji,
-        description: p.description,
-        tracks: p.paths.map((path) => byPath.get(path)).filter((t): t is Track => Boolean(t)),
-      }))
-      .filter((p) => p.tracks.length > 0);
-    setAiPlaylists(resolved);
-  }, [tracks, rawAiPlaylists]);
 
   // Restore Last Played Track from Storage
   useEffect(() => {
@@ -912,7 +873,6 @@ export default function App() {
             addToast={addToast}
             todaysMixTracks={todaysMixTracks}
             onRemoveFromTodaysMix={handleRemoveFromTodaysMix}
-            aiPlaylists={aiPlaylists}
           />
         </div>
       </div>

@@ -13,7 +13,7 @@ import {
   Sparkles,
   History,
 } from 'lucide-react';
-import { ActiveTab, AiPlaylist, Playlist, Track } from '../types';
+import { ActiveTab, Playlist, Track } from '../types';
 import { TrackCard } from './TrackCard';
 import { TrackTable } from './TrackTable';
 import { LyricsView } from './LyricsView';
@@ -48,7 +48,6 @@ interface MainViewProps {
   addToast?: (message: string, type?: 'info' | 'error' | 'success') => void;
   todaysMixTracks?: (Track & { instanceId: string })[];
   onRemoveFromTodaysMix?: (instanceId: string) => void;
-  aiPlaylists?: AiPlaylist[];
 }
 
 export const MainView: React.FC<MainViewProps> = ({
@@ -78,11 +77,9 @@ export const MainView: React.FC<MainViewProps> = ({
   addToast = () => {},
   todaysMixTracks = [],
   onRemoveFromTodaysMix = (_id: string) => {},
-  aiPlaylists = [],
 }) => {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [isViewingTodaysMix, setIsViewingTodaysMix] = useState(false);
-  const [viewingAiPlaylistId, setViewingAiPlaylistId] = useState<string | null>(null);
   const [allSongsFilter, setAllSongsFilter] = useState('');
   const greeting = getGreeting();
 
@@ -143,12 +140,9 @@ export const MainView: React.FC<MainViewProps> = ({
     ? tracks.filter((t) => !activePlaylist.trackIds.includes(t.id)).slice(0, 8)
     : [];
 
-  // Currently-open AI-generated playlist, if any
-  const viewingAiPlaylist = aiPlaylists.find((p) => p.id === viewingAiPlaylistId) || null;
-
   return (
     <main className="flex-1 overflow-y-auto pb-36 md:pb-28 px-4 sm:px-6 pt-4 custom-scrollbar select-none bg-gradient-to-b from-zinc-900 via-[#121212] to-[#121212]">
-      {activeTab === 'home' && !activePlaylistId && !isViewingTodaysMix && !viewingAiPlaylistId && (
+      {activeTab === 'home' && !activePlaylistId && !isViewingTodaysMix && (
         <div className="space-y-10 animate-in fade-in duration-500">
 
           {/* ── GREETING ── */}
@@ -258,55 +252,6 @@ export const MainView: React.FC<MainViewProps> = ({
               onAddToPlaylist={onAddToPlaylist}
               onAddToQueue={onAddToQueue}
             />
-          )}
-
-          {/* ── PLAYLISTS MADE BY AI (Haryanvi Mix / Love Mix / Hindi Mix / Punjabi Mix...) ── */}
-          {aiPlaylists.length > 0 && (
-            <section>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-[#1DB954]" />
-                  <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-                    Made by AI
-                  </h2>
-                </div>
-                <span className="text-xs text-zinc-500 font-medium">Refreshes daily</span>
-              </div>
-
-              <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 custom-scrollbar snap-x">
-                {aiPlaylists.map((pl) => {
-                  const [c1, c2] = getGradientColors(pl.name);
-                  return (
-                    <div
-                      key={pl.id}
-                      onClick={() => setViewingAiPlaylistId(pl.id)}
-                      className="shrink-0 w-40 sm:w-48 snap-start p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 hover:border-zinc-700 cursor-pointer group hover:bg-zinc-800/60 transition-all"
-                    >
-                      <div
-                        className="w-full aspect-square rounded-xl flex items-center justify-center text-4xl relative overflow-hidden shadow-lg mb-3"
-                        style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
-                      >
-                        <span>{pl.emoji}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (pl.tracks.length > 0) onPlayTrack(pl.tracks[0], pl.tracks);
-                          }}
-                          className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-[#1DB954] text-black flex items-center justify-center opacity-0 group-hover:opacity-100 group-hover:scale-105 transition-all shadow-2xl"
-                          title={`Play ${pl.name}`}
-                        >
-                          <Play className="w-5 h-5 fill-black translate-x-0.5" />
-                        </button>
-                      </div>
-                      <h3 className="text-sm font-bold text-white truncate">{pl.name}</h3>
-                      <p className="text-xs text-zinc-400 mt-0.5 line-clamp-2">
-                        {pl.description || `${pl.tracks.length} AI-picked tracks`}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
           )}
 
           {/* ── SONGS YOU MIGHT LIKE (20-30 tracks grid) ── */}
@@ -462,99 +407,6 @@ export const MainView: React.FC<MainViewProps> = ({
         </div>
       )}
 
-      {/* ----------------- AI PLAYLIST FULL VIEW ----------------- */}
-      {viewingAiPlaylist && !activePlaylistId && (
-        <div className="space-y-8 animate-in fade-in duration-300">
-          <div
-            className="flex flex-col sm:flex-row items-center sm:items-end justify-between gap-6 p-6 -mx-4 sm:-mx-6 -mt-4"
-            style={{
-              background: `linear-gradient(to bottom, ${getGradientColors(viewingAiPlaylist.name)[0]}55, transparent)`,
-            }}
-          >
-            <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6">
-              <div
-                className="w-36 h-36 sm:w-48 sm:h-48 rounded-2xl flex items-center justify-center shadow-2xl shrink-0 text-6xl"
-                style={{
-                  background: `linear-gradient(135deg, ${getGradientColors(viewingAiPlaylist.name)[0]}, ${getGradientColors(viewingAiPlaylist.name)[1]})`,
-                }}
-              >
-                {viewingAiPlaylist.emoji}
-              </div>
-
-              <div className="flex flex-col gap-2 text-center sm:text-left">
-                <button
-                  onClick={() => setViewingAiPlaylistId(null)}
-                  className="text-xs font-bold text-[#1DB954] hover:underline self-start mb-1 flex items-center gap-1"
-                >
-                  ← Back to Home
-                </button>
-                <span className="text-xs font-extrabold uppercase tracking-widest text-emerald-300 flex items-center gap-1.5 justify-center sm:justify-start">
-                  <Sparkles className="w-3.5 h-3.5" /> Made by AI
-                </span>
-                <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-                  {viewingAiPlaylist.name}
-                </h1>
-                {viewingAiPlaylist.description && (
-                  <p className="text-sm text-zinc-300 font-medium">{viewingAiPlaylist.description}</p>
-                )}
-                <span className="text-xs text-zinc-400 font-semibold mt-1">
-                  {viewingAiPlaylist.tracks.length} tracks
-                </span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                if (viewingAiPlaylist.tracks.length > 0) {
-                  onPlayTrack(viewingAiPlaylist.tracks[0], viewingAiPlaylist.tracks);
-                }
-              }}
-              className="w-14 h-14 rounded-full bg-[#1DB954] hover:bg-[#1ed760] text-black flex items-center justify-center shadow-2xl transition-all hover:scale-105 active:scale-95 shrink-0"
-              title={`Play ${viewingAiPlaylist.name}`}
-            >
-              <Play className="w-7 h-7 fill-black translate-x-0.5" />
-            </button>
-          </div>
-
-          <div className="divide-y divide-zinc-800/60 bg-zinc-900/40 rounded-2xl border border-zinc-800 p-2 sm:p-4">
-            {viewingAiPlaylist.tracks.map((track, idx) => (
-              <div
-                key={track.id}
-                className="flex items-center justify-between p-3 hover:bg-zinc-800/60 rounded-xl group transition-colors cursor-pointer"
-                onClick={() => onPlayTrack(track, viewingAiPlaylist.tracks.slice(idx))}
-              >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <span className="w-6 text-xs font-mono text-zinc-500 group-hover:text-white">{idx + 1}</span>
-                  <img src={track.coverArtUrl} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-sm font-bold text-white truncate group-hover:text-[#1DB954] transition-colors">
-                      {track.title}
-                    </span>
-                    <span className="text-xs text-zinc-400 truncate">{track.artist}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleLike(track.id, e);
-                    }}
-                    className={`p-2 rounded-full transition-all opacity-80 group-hover:opacity-100 ${
-                      likedTrackIds.includes(track.id)
-                        ? 'text-[#1DB954]'
-                        : 'text-zinc-500 hover:text-white'
-                    }`}
-                    title={likedTrackIds.includes(track.id) ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
-                  >
-                    <Heart className={`w-4 h-4 ${likedTrackIds.includes(track.id) ? 'fill-[#1DB954]' : ''}`} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ----------------- ALL SONGS TAB ----------------- */}
       {activeTab === 'allSongs' && (
