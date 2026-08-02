@@ -155,7 +155,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
             {currentTrack.title}
           </span>
           <span className="text-[11px] md:text-xs text-zinc-400 truncate group-hover:text-zinc-200 font-medium">
-            {currentTrack.artist || 'CoolJaat'}
+            {currentTrack.artist || 'SpotifyMine'}
           </span>
         </div>
 

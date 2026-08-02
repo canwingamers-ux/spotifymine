@@ -250,7 +250,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Info */}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-white truncate">{track.title}</p>
-                  <p className="text-xs truncate" style={{ color: '#71717a' }}>{track.artist || 'CoolJaat'}</p>
+                  <p className="text-xs truncate" style={{ color: '#71717a' }}>{track.artist || 'SpotifyMine'}</p>
                 </div>
 
                 {/* Path (hidden on small) */}

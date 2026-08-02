@@ -12,6 +12,7 @@ import {
   FolderPlus,
   Sparkles,
   History,
+  X,
 } from 'lucide-react';
 import { ActiveTab, AiPlaylist, Playlist, Track } from '../types';
 import { TrackCard } from './TrackCard';
@@ -60,6 +61,7 @@ export const MainView: React.FC<MainViewProps> = ({
   currentTime = 0,
   likedTrackIds,
   searchQuery,
+  setSearchQuery,
   onPlayTrack,
   onToggleLike,
   playlists,
@@ -648,6 +650,44 @@ export const MainView: React.FC<MainViewProps> = ({
       {/* ----------------- SEARCH TAB ----------------- */}
       {activeTab === 'search' && (
         <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Mobile-only search bar. The header's search input is hidden
+              below the `sm` breakpoint (see Header.tsx), so without this,
+              mobile users landing here from the bottom-nav Search tab had
+              no way to actually type a query. Auto-focused so the keyboard
+              opens immediately, matching how Spotify's own mobile Search
+              tab behaves. */}
+          <div className="sm:hidden relative -mx-1">
+            <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input
+              type="text"
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="What do you want to listen to?"
+              className="w-full rounded-full pl-10 pr-9 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
+              style={{
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.10)',
+              }}
+              onFocusCapture={(e) => {
+                e.currentTarget.style.border = '1px solid #1DB954';
+                e.currentTarget.style.background = 'rgba(255,255,255,0.10)';
+              }}
+              onBlurCapture={(e) => {
+                e.currentTarget.style.border = '1px solid rgba(255,255,255,0.10)';
+                e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white p-0.5 rounded-full transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-extrabold text-white tracking-tight">
               Search Results {searchQuery && <span className="text-zinc-400 text-lg font-normal">"{searchQuery}"</span>}

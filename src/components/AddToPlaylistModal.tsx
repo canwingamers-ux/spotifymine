@@ -63,7 +63,7 @@ export const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({
           />
           <div className="flex flex-col min-w-0 flex-1">
             <span className="font-bold text-white text-sm truncate">{track.title}</span>
-            <span className="text-xs text-zinc-400 truncate">{track.artist || 'CoolJaat'}</span>
+            <span className="text-xs text-zinc-400 truncate">{track.artist || 'SpotifyMine'}</span>
           </div>
         </div>
 

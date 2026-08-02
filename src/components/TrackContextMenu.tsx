@@ -68,7 +68,7 @@ export const TrackContextMenu: React.FC<TrackContextMenuProps> = ({
       >
         <div className="px-4 pb-2 mb-1 border-b border-zinc-800">
           <p className="text-xs font-bold text-white truncate">{track.title}</p>
-          <p className="text-[11px] text-zinc-400 truncate">{track.artist || 'CoolJaat'}</p>
+          <p className="text-[11px] text-zinc-400 truncate">{track.artist || 'SpotifyMine'}</p>
         </div>
         {item(<Play className="w-4 h-4" />, 'Play Now', () => onPlay(track))}
         {onAddToQueue && item(<ListPlus className="w-4 h-4" />, 'Add to Queue', () => onAddToQueue(track))}
