@@ -421,6 +421,17 @@ export default function App() {
           setTracks([]);
         }
       } else {
+        // The endpoint always returns 200, but on failure the body is
+        // { error, tracks: [] } instead of an array. Treat that the same
+        // way an HTTP error used to be treated: retry once, then tell
+        // the user what actually happened instead of just going quiet.
+        if (data && typeof data === 'object' && 'error' in data) {
+          if (!isRetry) {
+            setTimeout(() => fetchHFMusicLibrary(true), 1500);
+            return;
+          }
+          addToast(`Couldn't load your library: ${data.error}`, 'error');
+        }
         setTracks([]);
       }
     } catch (err: any) {

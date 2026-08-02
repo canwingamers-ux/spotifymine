@@ -21,10 +21,12 @@ async function startServer() {
       return res.json(data);
     } catch (err: any) {
       console.error("HF fetch error:", err);
-      return res.status(500).json({
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({
         error: err.message || "Failed to fetch from Hugging Face",
         user,
         repo,
+        tracks: [],
       });
     }
   });
