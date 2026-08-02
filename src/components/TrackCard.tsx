@@ -131,7 +131,7 @@ export const TrackCard: React.FC<TrackCardProps> = ({
           {track.title}
         </h3>
         <p className="text-xs text-zinc-400 truncate font-medium">
-          {track.artist || 'SpotifyMine'}
+          {track.artist || 'CoolJaat'}
         </p>
       </div>
 

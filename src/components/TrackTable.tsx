@@ -170,7 +170,7 @@ const TrackRow: React.FC<TrackRowProps> = ({
                         {track.title}
                       </span>
                       <span className="text-xs text-zinc-400 truncate">
-                        {track.artist || 'SpotifyMine'}
+                        {track.artist || 'CoolJaat'}
                       </span>
                     </div>
                   </div>
