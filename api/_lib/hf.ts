@@ -49,42 +49,95 @@ export function parseBasic(path: string): { title: string; artist: string } {
   return { title: formatWords(cleanStr) || "Untitled Track", artist: "CoolJaat" };
 }
 
+async function fetchWithTimeout(url: string, timeoutMs = 20000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Fetches EVERY entry in the dataset tree, following Hugging Face's
  * pagination (Link header, rel="next") until exhausted. The previous
  * single-fetch version silently truncated at the API's per-page cap,
  * which is why songs past that point never showed up anywhere in the
  * app (home, search, AI playlists — all consumed the same truncated list).
+ *
+ * This is written to NEVER throw once it has collected at least one page —
+ * any failure mid-pagination (bad/relative next-page URL, malformed page,
+ * slow response, unexpected shape) just stops the loop and returns
+ * whatever was already gathered, instead of taking down the whole
+ * /api/hf-tree response with an uncaught error.
  */
 export async function fetchFullTree(
   user: string = HF_USER,
   repo: string = HF_REPO
 ): Promise<any[]> {
-  let url: string | null =
-    `https://huggingface.co/api/datasets/${encodeURIComponent(user)}/${encodeURIComponent(repo)}/tree/main?recursive=true`;
+  const buildUrl = (query: string) =>
+    `https://huggingface.co/api/datasets/${encodeURIComponent(user)}/${encodeURIComponent(repo)}/tree/main${query}`;
+
+  let url: string | null = buildUrl("?recursive=true");
   let all: any[] = [];
   let triedSimpleFallback = false;
+  let pageCount = 0;
+  const MAX_PAGES = 200; // safety cap — well beyond any realistic library size
 
-  while (url) {
-    let response: Response = await fetch(url);
+  while (url && pageCount < MAX_PAGES) {
+    pageCount++;
+
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(url);
+    } catch (networkErr) {
+      console.error("HF tree fetch failed mid-pagination:", networkErr);
+      break; // keep whatever we already collected
+    }
 
     if (!response.ok && all.length === 0 && !triedSimpleFallback) {
       triedSimpleFallback = true;
-      url = `https://huggingface.co/api/datasets/${encodeURIComponent(user)}/${encodeURIComponent(repo)}/tree/main`;
-      response = await fetch(url);
+      url = buildUrl("");
+      try {
+        response = await fetchWithTimeout(url);
+      } catch (networkErr) {
+        console.error("HF tree simple-fallback fetch failed:", networkErr);
+        break;
+      }
     }
 
     if (!response.ok) {
-      if (all.length > 0) break; // keep whatever pages we already fetched
+      if (all.length > 0) break;
       throw new Error(`Hugging Face API returned status ${response.status}`);
     }
 
-    const page = await response.json();
-    if (Array.isArray(page)) all = all.concat(page);
+    let page: any;
+    try {
+      page = await response.json();
+    } catch (parseErr) {
+      console.error("HF tree page wasn't valid JSON:", parseErr);
+      break;
+    }
 
-    const linkHeader = response.headers.get('link') || response.headers.get('Link');
-    const nextMatch = linkHeader ? /<([^>]+)>\s*;\s*rel="next"/.exec(linkHeader) : null;
-    url = nextMatch ? nextMatch[1] : null;
+    if (!Array.isArray(page)) break; // unexpected shape — stop, keep what we have
+    all = all.concat(page);
+
+    let nextUrl: string | null = null;
+    const linkHeader = response.headers.get("link") || response.headers.get("Link");
+    if (linkHeader) {
+      const nextMatch = /<([^>]+)>\s*;\s*rel="next"/.exec(linkHeader);
+      if (nextMatch) {
+        try {
+          // Resolve defensively in case the header gives a relative path
+          // instead of a full URL — this was the likely crash cause.
+          nextUrl = new URL(nextMatch[1], "https://huggingface.co").toString();
+        } catch {
+          nextUrl = null;
+        }
+      }
+    }
+    url = nextUrl;
   }
 
   return all;

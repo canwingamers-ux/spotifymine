@@ -365,7 +365,7 @@ export default function App() {
   }, [currentTrack, currentTime]);
 
   // Fetch Hugging Face Dataset Tree & Apply Strict Poster / Metadata Rules
-  const fetchHFMusicLibrary = useCallback(async () => {
+  const fetchHFMusicLibrary = useCallback(async (isRetry = false) => {
     setIsLoadingHF(true);
 
     try {
@@ -373,10 +373,26 @@ export default function App() {
         `/api/hf-tree?user=${encodeURIComponent(HF_CONFIG.HF_USER)}&repo=${encodeURIComponent(HF_CONFIG.HF_REPO)}`
       );
 
-      let data: any[] = [];
-      if (response && response.ok) {
-        data = await response.json();
+      if (!response.ok) {
+        // Transient blip (cold start, brief HF hiccup)? Try once more
+        // silently before bothering the user with an error toast.
+        if (!isRetry) {
+          setTimeout(() => fetchHFMusicLibrary(true), 1500);
+          return;
+        }
+        const errBody = await response.json().catch(() => null);
+        addToast(
+          errBody?.error
+            ? `Couldn't load your library: ${errBody.error}`
+            : "Couldn't load your music library right now. Try refreshing.",
+          'error'
+        );
+        setTracks([]);
+        setIsLoadingHF(false);
+        return;
       }
+
+      const data = await response.json();
 
       if (Array.isArray(data)) {
         const audioFiles = data.filter((item: any) => {
@@ -413,12 +429,17 @@ export default function App() {
         setTracks([]);
       }
     } catch (err: any) {
+      if (!isRetry) {
+        setTimeout(() => fetchHFMusicLibrary(true), 1500);
+        return;
+      }
       console.warn('Hugging Face dataset offline or empty:', err?.message || err);
+      addToast("Couldn't reach your music library. Check your connection and try refreshing.", 'error');
       setTracks([]);
     } finally {
       setIsLoadingHF(false);
     }
-  }, []);
+  }, [addToast]);
 
   // Mount Fetch
   useEffect(() => {
