@@ -2,6 +2,9 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { Readable } from "stream";
+import { generateAiPlaylists } from "./api/_lib/aiPlaylists";
+import type { AiPlaylistsResult } from "./api/_lib/aiPlaylists";
+import { fetchFullTree, HF_USER, HF_REPO } from "./api/_lib/hf";
 
 async function startServer() {
   const app = express();
@@ -11,29 +14,12 @@ async function startServer() {
 
   // Hugging Face Proxy API Endpoint
   app.get("/api/hf-tree", async (req, res) => {
-    const user = (req.query.user as string) || "CoolJaat";
-    const repo = (req.query.repo as string) || "my-music-library";
+    const user = (req.query.user as string) || HF_USER;
+    const repo = (req.query.repo as string) || HF_REPO;
 
     try {
-      // Try recursive tree first
-      const recursiveUrl = `https://huggingface.co/api/datasets/${encodeURIComponent(user)}/${encodeURIComponent(repo)}/tree/main?recursive=true`;
-      let response = await fetch(recursiveUrl);
-      
-      if (!response.ok) {
-        // Fallback to simple tree
-        const simpleUrl = `https://huggingface.co/api/datasets/${encodeURIComponent(user)}/${encodeURIComponent(repo)}/tree/main`;
-        response = await fetch(simpleUrl);
-      }
-
-      if (!response.ok) {
-        return res.status(response.status).json({
-          error: `Hugging Face API returned status ${response.status}`,
-          user,
-          repo,
-        });
-      }
-
-      const data = await response.json();
+      const data = await fetchFullTree(user, repo);
+      res.setHeader("Cache-Control", "public, max-age=0, s-maxage=15, stale-while-revalidate=30");
       return res.json(data);
     } catch (err: any) {
       console.error("HF fetch error:", err);
@@ -96,6 +82,29 @@ async function startServer() {
     } catch (err: any) {
       console.error("Proxy audio error:", err);
       res.status(500).send("Internal Server Error");
+    }
+  });
+
+  // AI-Generated Themed Playlists (Haryanvi Mix, Love Mix, Hindi Mix, Punjabi
+  // Mix, etc.) — regenerated once per day via Gemini, cached in memory here
+  // so every request during the day (from any local session) sees the same
+  // result, mirroring the 24h edge cache used on Vercel.
+  let aiPlaylistsCache: { result: AiPlaylistsResult; expiresAt: number } | null = null;
+  app.get("/api/ai-playlists", async (_req, res) => {
+    try {
+      if (aiPlaylistsCache && aiPlaylistsCache.expiresAt > Date.now()) {
+        return res.json(aiPlaylistsCache.result);
+      }
+      const result = await generateAiPlaylists(process.env.GEMINI_API_KEY);
+      aiPlaylistsCache = { result, expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
+      return res.json(result);
+    } catch (err: any) {
+      console.error("AI playlists error:", err);
+      return res.status(200).json({
+        generatedAt: new Date().toISOString(),
+        playlists: [],
+        note: err?.message || "Failed to generate AI playlists.",
+      });
     }
   });
 

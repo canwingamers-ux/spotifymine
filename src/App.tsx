@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ActiveTab,
+  AiPlaylist,
   Playlist,
   RepeatMode,
   ToastMessage,
@@ -86,6 +87,9 @@ export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   // 100-song Today's Mix state (shuffled once per session/tracks load, allowing removal)
   const [todaysMixTrackIds, setTodaysMixTrackIds] = useState<string[]>([]);
+  // AI-generated daily playlists (Haryanvi Mix, Love Mix, Hindi Mix, Punjabi Mix...)
+  // — same for every visitor for the day, regenerated once every 24h server-side.
+  const [aiPlaylists, setAiPlaylists] = useState<AiPlaylist[]>([]);
 
   useEffect(() => {
     if (tracks.length > 0 && todaysMixTrackIds.length === 0) {
@@ -132,7 +136,11 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState<number>(() => Storage.getVolume());
   const [isMuted, setIsMutedState] = useState<boolean>(() => Storage.getMuted());
-  const [isShuffle, setIsShuffle] = useState(true);
+  const [isShuffle, setIsShuffle] = useState(false);
+  // Stable shuffled play order — computed once when shuffle is switched on
+  // (and reshuffled only after a full pass completes), instead of being
+  // re-randomized on every render/re-shuffle-in-place.
+  const [shuffledOrder, setShuffledOrder] = useState<Track[]>([]);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [userQueue, setUserQueue] = useState<Track[]>([]);
@@ -216,15 +224,26 @@ export default function App() {
       const randomIndex = Math.floor(Math.random() * tracks.length);
       nextTrack = tracks[randomIndex];
     } else {
-      let nextIndex = 0;
       const currentIndex = tracks.findIndex((t) => t.id === currentTrack?.id);
 
       if (isShuffle) {
-        nextIndex = Math.floor(Math.random() * tracks.length);
+        // Advance through the one stable shuffled order rather than
+        // re-randomizing on every track change. Only reshuffle (a fresh
+        // pass) once we've made it all the way through the current one.
+        const order = shuffledOrder.length > 0 ? shuffledOrder : tracks;
+        const posInOrder = order.findIndex((t) => t.id === currentTrack?.id);
+        const isLastInPass = posInOrder === -1 || posInOrder >= order.length - 1;
+        if (isLastInPass) {
+          const freshOrder: Track[] = shuffleArray(tracks);
+          setShuffledOrder(freshOrder);
+          nextTrack = freshOrder.length > 0 ? freshOrder[0] : null;
+        } else {
+          nextTrack = order[posInOrder + 1];
+        }
       } else {
-        nextIndex = currentIndex >= 0 ? (currentIndex + 1) % tracks.length : 0;
+        const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % tracks.length : 0;
+        nextTrack = tracks[nextIndex];
       }
-      nextTrack = tracks[nextIndex];
     }
 
     // Safari (iOS/macOS) has no decoder for .ogg or .flac at all, no matter
@@ -258,7 +277,7 @@ export default function App() {
           });
       }
     }
-  }, [tracks, currentTrack, isShuffle, userQueue, isAutoplay, trackPlayStart]);
+  }, [tracks, currentTrack, isShuffle, shuffledOrder, userQueue, isAutoplay, trackPlayStart]);
 
   // Initialize HTML5 Audio Element event listeners
   // The <audio> element itself is rendered in the JSX below (required for iOS Safari)
@@ -386,8 +405,7 @@ export default function App() {
             };
           });
 
-          const combined = shuffleArray(hfTracks);
-          setTracks(combined);
+          setTracks(hfTracks);
         } else {
           setTracks([]);
         }
@@ -406,6 +424,40 @@ export default function App() {
   useEffect(() => {
     fetchHFMusicLibrary();
   }, [fetchHFMusicLibrary]);
+
+  // Fetch AI-Generated Daily Playlists
+  // (Haryanvi Mix / Love Mix / Hindi Mix / Punjabi Mix, etc. — server picks
+  // and caches these once per day; every visitor sees the same set.)
+  const [rawAiPlaylists, setRawAiPlaylists] = useState<
+    { id: string; name: string; emoji: string; description: string; paths: string[] }[]
+  >([]);
+
+  useEffect(() => {
+    fetch('/api/ai-playlists')
+      .then((res) => (res.ok ? res.json() : { playlists: [] }))
+      .then((data) => setRawAiPlaylists(Array.isArray(data?.playlists) ? data.playlists : []))
+      .catch(() => setRawAiPlaylists([]));
+  }, []);
+
+  // Resolve each AI playlist's file paths against the loaded track library.
+  // Re-runs whenever the library or the raw AI playlist data changes.
+  useEffect(() => {
+    if (tracks.length === 0 || rawAiPlaylists.length === 0) {
+      setAiPlaylists([]);
+      return;
+    }
+    const byPath = new Map(tracks.map((t) => [t.path, t]));
+    const resolved: AiPlaylist[] = rawAiPlaylists
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        emoji: p.emoji,
+        description: p.description,
+        tracks: p.paths.map((path) => byPath.get(path)).filter((t): t is Track => Boolean(t)),
+      }))
+      .filter((p) => p.tracks.length > 0);
+    setAiPlaylists(resolved);
+  }, [tracks, rawAiPlaylists]);
 
   // Restore Last Played Track from Storage
   useEffect(() => {
@@ -582,6 +634,7 @@ export default function App() {
     setIsShuffle((prev) => {
       const nextShuffle = !prev;
       if (nextShuffle) {
+        setShuffledOrder(shuffleArray(tracks));
         setIsQueueOpen(true);
         addToast('Shuffle On — Opening Up Next Queue', 'info');
       } else {
@@ -589,7 +642,7 @@ export default function App() {
       }
       return nextShuffle;
     });
-  }, [addToast]);
+  }, [addToast, tracks]);
 
   const handleToggleRepeat = useCallback(() => {
     const modes: RepeatMode[] = ['off', 'all', 'one'];
@@ -759,6 +812,15 @@ export default function App() {
     };
   }, [handleTogglePlayPause, handleSeek, handleToggleMute, duration]);
 
+  // Stable "Up Next" list for the Queue modal — derived from the one
+  // pre-shuffled order (not recomputed/re-randomized on every render).
+  const upNextQueue = useMemo(() => {
+    const rest = (isShuffle && shuffledOrder.length > 0 ? shuffledOrder : tracks).filter(
+      (t) => t.id !== currentTrack?.id
+    );
+    return rest;
+  }, [isShuffle, shuffledOrder, tracks, currentTrack]);
+
   return (
     <div className="flex flex-col h-screen w-screen bg-black text-white font-sans overflow-hidden select-none">
       <audio
@@ -829,6 +891,7 @@ export default function App() {
             addToast={addToast}
             todaysMixTracks={todaysMixTracks}
             onRemoveFromTodaysMix={handleRemoveFromTodaysMix}
+            aiPlaylists={aiPlaylists}
           />
         </div>
       </div>
@@ -901,7 +964,7 @@ export default function App() {
       <QueueModal
         isOpen={isQueueOpen}
         onClose={() => setIsQueueOpen(false)}
-        queue={isShuffle ? shuffleArray(tracks.filter((t) => t.id !== currentTrack?.id)) : tracks.filter((t) => t.id !== currentTrack?.id)}
+        queue={upNextQueue}
         userQueue={userQueue}
         currentTrack={currentTrack}
         onPlayTrack={(track) => {

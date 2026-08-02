@@ -10,6 +10,7 @@ import {
   Folder,
   Mic2,
   Sparkles,
+  ListMusic,
 } from 'lucide-react';
 import { ActiveTab, Playlist } from '../types';
 
@@ -95,6 +96,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {navItem('home', 'Home', Home)}
             {navItem('search', 'Search', Search)}
             {navItem('library', 'Your Library', Library)}
+            {navItem('allSongs', 'All Songs', ListMusic)}
             {navItem('lyrics', 'Lyrics', Mic2)}
           </nav>
         </div>
@@ -209,9 +211,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {([
           { key: 'home' as ActiveTab, label: 'Home', Icon: Home },
           { key: 'search' as ActiveTab, label: 'Search', Icon: Search },
+          { key: 'allSongs' as ActiveTab, label: 'All Songs', Icon: ListMusic },
           { key: 'library' as ActiveTab, label: 'Library', Icon: Library },
           { key: 'liked' as ActiveTab, label: 'Liked', Icon: Heart },
-          { key: 'lyrics' as ActiveTab, label: 'Lyrics', Icon: Mic2 },
         ]).map(({ key, label, Icon }) => (
           <button
             key={key}

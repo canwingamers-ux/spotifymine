@@ -36,17 +36,18 @@ export default defineConfig(() => {
               },
             },
             {
-              // Track-list metadata (JSON tree listing) — safe to serve
-              // instantly from cache while a fresh copy is fetched quietly
-              // in the background, instead of blocking on a full network
-              // round trip on every app load.
+              // Track-list metadata (JSON tree listing). NetworkFirst so the
+              // list is always fetched fresh — this only falls back to a
+              // cached copy if the network is genuinely unreachable (offline),
+              // rather than showing a possibly-stale list by default.
               urlPattern: ({ url }: { url: URL }) => url.pathname === '/api/hf-tree',
-              handler: 'StaleWhileRevalidate',
+              handler: 'NetworkFirst',
               options: {
                 cacheName: 'hf-tree-metadata',
+                networkTimeoutSeconds: 8,
                 expiration: {
                   maxEntries: 5,
-                  maxAgeSeconds: 60 * 30, // 30 minutes
+                  maxAgeSeconds: 60 * 5, // 5 minutes — offline fallback only
                 },
                 cacheableResponse: { statuses: [0, 200] },
               },

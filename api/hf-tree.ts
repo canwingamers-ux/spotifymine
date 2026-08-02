@@ -1,34 +1,20 @@
+import { fetchFullTree, HF_USER, HF_REPO } from "./_lib/hf";
+
 export const config = {
   runtime: "nodejs",
 };
 
 export default async function handler(req: any, res: any) {
-  const user = (req.query.user as string) || "CoolJaat";
-  const repo = (req.query.repo as string) || "my-music-library";
+  const user = (req.query.user as string) || HF_USER;
+  const repo = (req.query.repo as string) || HF_REPO;
 
   try {
-    const recursiveUrl = `https://huggingface.co/api/datasets/${encodeURIComponent(user)}/${encodeURIComponent(repo)}/tree/main?recursive=true`;
-    let response = await fetch(recursiveUrl);
-
-    if (!response.ok) {
-      const simpleUrl = `https://huggingface.co/api/datasets/${encodeURIComponent(user)}/${encodeURIComponent(repo)}/tree/main`;
-      response = await fetch(simpleUrl);
-    }
-
-    if (!response.ok) {
-      res.status(response.status).json({
-        error: `Hugging Face API returned status ${response.status}`,
-        user,
-        repo,
-      });
-      return;
-    }
-
-    const data = await response.json();
-    // Cache at the edge for 5 min, serve stale for up to 1hr while revalidating
-    // in the background. The library rarely changes second-to-second, so this
-    // saves a full HF API round-trip (and its payload) on almost every load.
-    res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
+    const data = await fetchFullTree(user, repo);
+    // Short-lived edge cache only — a handful of seconds to absorb burst
+    // traffic (many users loading the app at once), not a "check back in
+    // 5 minutes" cache. This keeps the library close to real-time instead
+    // of serving a stale list while new/changed files wait to appear.
+    res.setHeader("Cache-Control", "public, max-age=0, s-maxage=15, stale-while-revalidate=30");
     res.status(200).json(data);
   } catch (err: any) {
     console.error("HF fetch error:", err);
