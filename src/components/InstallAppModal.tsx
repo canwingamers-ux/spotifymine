@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Download, MonitorSmartphone, CheckCircle2, Clock } from 'lucide-react';
+import { X, Download, MonitorSmartphone, CheckCircle2 } from 'lucide-react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -16,6 +16,11 @@ interface InstallAppModalProps {
 function isAndroid(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /Android/i.test(navigator.userAgent);
+}
+
+function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
 function isStandalone(): boolean {
@@ -35,6 +40,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
   const [installed, setInstalled] = useState(false);
   const [busy, setBusy] = useState(false);
   const android = isAndroid();
+  const ios = isIOS();
   const alreadyStandalone = isStandalone();
 
   useEffect(() => {
@@ -89,16 +95,6 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
                 This app is already installed and running on your device.
               </p>
             </div>
-          ) : android ? (
-            <div className="flex flex-col items-center text-center gap-3 py-6">
-              <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
-                <Clock className="w-6 h-6 text-[#1DB954]" />
-              </div>
-              <p className="text-white font-bold">Android — Coming Soon</p>
-              <p className="text-zinc-400 text-sm max-w-xs">
-                The installable Android app isn't ready yet. Check back soon!
-              </p>
-            </div>
           ) : (
             <div className="flex flex-col gap-4">
               <div className="flex items-start gap-3 bg-zinc-800/60 rounded-xl p-4">
@@ -118,6 +114,26 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
                   <Download className="w-4.5 h-4.5" />
                   {busy ? 'Installing…' : 'Install App'}
                 </button>
+              ) : android ? (
+                <div className="flex flex-col gap-3 text-sm text-zinc-300">
+                  <p>
+                    Your browser hasn't offered the install prompt yet (this can happen
+                    right after a fresh page load, or if you dismissed it before). You
+                    can also install manually:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-zinc-400">
+                    <li>Open the <b>⋮ menu</b> in Chrome (top right)</li>
+                    <li>Tap <b>"Install app"</b> or <b>"Add to Home screen"</b></li>
+                  </ul>
+                </div>
+              ) : ios ? (
+                <div className="flex flex-col gap-3 text-sm text-zinc-300">
+                  <p>iOS installs apps straight from Safari's share sheet:</p>
+                  <ul className="list-disc list-inside space-y-1 text-zinc-400">
+                    <li>Tap the <b>Share</b> icon in Safari's toolbar</li>
+                    <li>Scroll down and tap <b>"Add to Home Screen"</b></li>
+                  </ul>
+                </div>
               ) : (
                 <div className="flex flex-col gap-3 text-sm text-zinc-300">
                   <p>

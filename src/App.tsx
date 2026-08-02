@@ -10,7 +10,10 @@ import {
   parseTrackMetadata,
   HF_CONFIG,
   SUPPORTED_AUDIO_EXTENSIONS,
-  shuffleArray
+  shuffleArray,
+  getStreamableAudioUrl,
+  isSafariBrowser,
+  isSafariPlayable
 } from './utils/audioUtils';
 import { Storage } from './utils/storage';
 import { Sidebar } from './components/Sidebar';
@@ -54,8 +57,13 @@ export default function App() {
       e.preventDefault();
       setDeferredInstallPrompt(e);
     };
+    const installedHandler = () => setDeferredInstallPrompt(null);
     window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', installedHandler);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('appinstalled', installedHandler);
+    };
   }, []);
 
   // Maximized Full-Screen Player State
@@ -219,12 +227,22 @@ export default function App() {
       nextTrack = tracks[nextIndex];
     }
 
+    // Safari (iOS/macOS) has no decoder for .ogg or .flac at all, no matter
+    // what headers the server sends — skip straight past those instead of
+    // landing on a track that will silently fail to play.
+    if (nextTrack && isSafariBrowser() && !isSafariPlayable(nextTrack.path)) {
+      const playableTracks = tracks.filter((t) => isSafariPlayable(t.path));
+      nextTrack = playableTracks.length > 0
+        ? playableTracks[Math.floor(Math.random() * playableTracks.length)]
+        : null;
+    }
+
     if (nextTrack) {
       setCurrentTrack(nextTrack);
       trackPlayStart(nextTrack);
       setBufferedPercent(0);
       if (audioRef.current) {
-        audioRef.current.src = nextTrack.audioUrl;
+        audioRef.current.src = getStreamableAudioUrl(nextTrack);
         audioRef.current.currentTime = 0;
         audioRef.current.load();
         audioRef.current
@@ -397,7 +415,7 @@ export default function App() {
       if (track) {
         setCurrentTrack(track);
         if (audioRef.current) {
-          audioRef.current.src = track.audioUrl;
+          audioRef.current.src = getStreamableAudioUrl(track);
         }
       }
     } else if (tracks.length > 0 && !currentTrack) {
@@ -441,11 +459,17 @@ export default function App() {
             });
           willPlay = true;
         }
+      } else if (isSafariBrowser() && !isSafariPlayable(track.path)) {
+        // Safari has no decoder for .ogg/.flac on any platform — bail out
+        // with a clear message instead of loading a track that will never
+        // actually play.
+        addToast(`"${track.title}" isn't a format Safari can play. Try it in Chrome instead.`, 'error');
+        return;
       } else {
         setCurrentTrack(track);
         trackPlayStart(track);
         setBufferedPercent(0);
-        audio.src = track.audioUrl;
+        audio.src = getStreamableAudioUrl(track);
         audio.currentTime = 0;
         
         if (customQueue && customQueue.length > 0) {

@@ -7,6 +7,43 @@ export const HF_CONFIG = {
 
 export const SUPPORTED_AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.ogg', '.flac'];
 
+// Formats iOS/macOS Safari's <audio> element can actually decode. .ogg and
+// .flac are NOT in this list — Safari has no decoder for either, on any
+// platform, regardless of Content-Type headers.
+const SAFARI_PLAYABLE_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav']);
+
+/**
+ * True for both iOS Safari and desktop macOS Safari (but not Chrome/Firefox
+ * running on iOS, which are still just Safari's engine under the hood but
+ * report themselves distinctly — CriOS/FxiOS/EdgiOS — and not real Safari).
+ */
+export function isSafariBrowser(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  return /Safari/i.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS|OPiOS|Chromium|Android/i.test(ua);
+}
+
+/**
+ * Hugging Face serves Git-LFS-tracked audio (i.e. all of it) with
+ * Content-Type: application/octet-stream. Chrome/Firefox/Android sniff the
+ * bytes and play it fine; Safari refuses outright — that's the entire
+ * reason songs fail to play on iPhone/iPad while working everywhere else.
+ * For Safari, route through our /api/audio proxy, which overrides the
+ * Content-Type with the correct audio/* value before the browser ever sees
+ * it. Every other browser keeps streaming straight from the CDN (faster,
+ * no server hop, matches the bandwidth-optimization work already in place).
+ */
+export function getStreamableAudioUrl(track: { path: string; audioUrl: string }): string {
+  if (!isSafariBrowser()) return track.audioUrl;
+  return `/api/audio?user=${encodeURIComponent(HF_CONFIG.HF_USER)}&repo=${encodeURIComponent(HF_CONFIG.HF_REPO)}&file=${encodeURIComponent(track.path)}`;
+}
+
+/** True if this file's extension is one Safari can actually decode/play. */
+export function isSafariPlayable(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() || '';
+  return SAFARI_PLAYABLE_EXTENSIONS.has(ext);
+}
+
 /**
  * Format string into title case, keeping numbers and short acronyms
  */
