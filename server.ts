@@ -3,6 +3,8 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { Readable } from "stream";
 import { fetchFullTree, HF_USER, HF_REPO } from "./api/_lib/hf";
+import { generateAiPlaylists } from "./api/_lib/aiPlaylists";
+import type { AiPlaylistsResult } from "./api/_lib/aiPlaylists";
 
 async function startServer() {
   const app = express();
@@ -27,6 +29,38 @@ async function startServer() {
         user,
         repo,
         tracks: [],
+      });
+    }
+  });
+
+  // AI-Generated Themed Playlists (Punjabi Mix, Haryanvi Mix, Hindi Mix,
+  // Love Mix) — regenerated once per day, cached in memory here so every
+  // request during the day sees the same result, mirroring the 24h edge
+  // cache used on Vercel. Accepts the Gemini key from the browser (entered
+  // in-app, sent as a header) or falls back to a server env var.
+  let aiPlaylistsCache: { result: AiPlaylistsResult; expiresAt: number } | null = null;
+  app.get("/api/ai-playlists", async (req, res) => {
+    // Prefer the server-configured key so behavior matches Vercel exactly.
+    const headerKey = (req.headers["x-gemini-key"] as string) || "";
+    const apiKey = process.env.GEMINI_API_KEY || headerKey || "";
+
+    if (!apiKey) {
+      return res.json({ generatedAt: new Date().toISOString(), playlists: [], note: "No Gemini API key configured yet." });
+    }
+
+    try {
+      if (aiPlaylistsCache && aiPlaylistsCache.expiresAt > Date.now()) {
+        return res.json(aiPlaylistsCache.result);
+      }
+      const result = await generateAiPlaylists(apiKey);
+      aiPlaylistsCache = { result, expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
+      return res.json(result);
+    } catch (err: any) {
+      console.error("AI playlists error:", err);
+      return res.status(200).json({
+        generatedAt: new Date().toISOString(),
+        playlists: [],
+        note: err?.message || "Failed to generate AI playlists.",
       });
     }
   });

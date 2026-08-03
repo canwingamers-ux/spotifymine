@@ -55,8 +55,8 @@ export default defineConfig(() => {
           ],
         },
         manifest: {
-          name: 'CoolJaat Music Player',
-          short_name: 'CoolJaat',
+          name: 'SpotifyMine',
+          short_name: 'SpotifyMine',
           description: 'A powerful web music player.',
           theme_color: '#121212',
           background_color: '#121212',

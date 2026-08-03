@@ -89,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <Disc className="w-4 h-4 text-black" style={{ animation: 'spin 4s linear infinite' }} />
             </div>
-            <span className="text-white font-extrabold text-base tracking-tight">Spotify</span>
+            <span className="text-white font-extrabold text-base tracking-tight">SpotifyMine</span>
           </div>
 
           <nav className="flex flex-col gap-0.5">

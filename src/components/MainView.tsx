@@ -12,8 +12,9 @@ import {
   FolderPlus,
   Sparkles,
   History,
+  X,
 } from 'lucide-react';
-import { ActiveTab, Playlist, Track } from '../types';
+import { ActiveTab, AiPlaylist, Playlist, Track } from '../types';
 import { TrackCard } from './TrackCard';
 import { TrackTable } from './TrackTable';
 import { LyricsView } from './LyricsView';
@@ -48,6 +49,7 @@ interface MainViewProps {
   addToast?: (message: string, type?: 'info' | 'error' | 'success') => void;
   todaysMixTracks?: (Track & { instanceId: string })[];
   onRemoveFromTodaysMix?: (instanceId: string) => void;
+  aiPlaylists?: AiPlaylist[];
 }
 
 export const MainView: React.FC<MainViewProps> = ({
@@ -59,6 +61,7 @@ export const MainView: React.FC<MainViewProps> = ({
   currentTime = 0,
   likedTrackIds,
   searchQuery,
+  setSearchQuery,
   onPlayTrack,
   onToggleLike,
   playlists,
@@ -77,9 +80,11 @@ export const MainView: React.FC<MainViewProps> = ({
   addToast = () => {},
   todaysMixTracks = [],
   onRemoveFromTodaysMix = (_id: string) => {},
+  aiPlaylists = [],
 }) => {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [isViewingTodaysMix, setIsViewingTodaysMix] = useState(false);
+  const [viewingAiPlaylistId, setViewingAiPlaylistId] = useState<string | null>(null);
   const [allSongsFilter, setAllSongsFilter] = useState('');
   const greeting = getGreeting();
 
@@ -140,9 +145,12 @@ export const MainView: React.FC<MainViewProps> = ({
     ? tracks.filter((t) => !activePlaylist.trackIds.includes(t.id)).slice(0, 8)
     : [];
 
+  // Currently-open AI-generated playlist, if any
+  const viewingAiPlaylist = aiPlaylists.find((p) => p.id === viewingAiPlaylistId) || null;
+
   return (
     <main className="flex-1 overflow-y-auto pb-36 md:pb-28 px-4 sm:px-6 pt-4 custom-scrollbar select-none bg-gradient-to-b from-zinc-900 via-[#121212] to-[#121212]">
-      {activeTab === 'home' && !activePlaylistId && !isViewingTodaysMix && (
+      {activeTab === 'home' && !activePlaylistId && !isViewingTodaysMix && !viewingAiPlaylistId && (
         <div className="space-y-10 animate-in fade-in duration-500">
 
           {/* ── GREETING ── */}
@@ -252,6 +260,55 @@ export const MainView: React.FC<MainViewProps> = ({
               onAddToPlaylist={onAddToPlaylist}
               onAddToQueue={onAddToQueue}
             />
+          )}
+
+          {/* ── PLAYLISTS MADE BY AI (Punjabi Mix / Haryanvi Mix / Hindi Mix / Love Mix...) ── */}
+          {aiPlaylists.length > 0 && (
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-[#1DB954]" />
+                  <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                    Made by AI
+                  </h2>
+                </div>
+                <span className="text-xs text-zinc-500 font-medium">Refreshes daily</span>
+              </div>
+
+              <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 custom-scrollbar snap-x">
+                {aiPlaylists.map((pl) => {
+                  const [c1, c2] = getGradientColors(pl.name);
+                  return (
+                    <div
+                      key={pl.id}
+                      onClick={() => setViewingAiPlaylistId(pl.id)}
+                      className="shrink-0 w-40 sm:w-48 snap-start p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 hover:border-zinc-700 cursor-pointer group hover:bg-zinc-800/60 transition-all"
+                    >
+                      <div
+                        className="w-full aspect-square rounded-xl flex items-center justify-center text-4xl relative overflow-hidden shadow-lg mb-3"
+                        style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
+                      >
+                        <span>{pl.emoji}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (pl.tracks.length > 0) onPlayTrack(pl.tracks[0], pl.tracks);
+                          }}
+                          className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-[#1DB954] text-black flex items-center justify-center opacity-0 group-hover:opacity-100 group-hover:scale-105 transition-all shadow-2xl"
+                          title={`Play ${pl.name}`}
+                        >
+                          <Play className="w-5 h-5 fill-black translate-x-0.5" />
+                        </button>
+                      </div>
+                      <h3 className="text-sm font-bold text-white truncate">{pl.name}</h3>
+                      <p className="text-xs text-zinc-400 mt-0.5 line-clamp-2">
+                        {pl.description || `${pl.tracks.length} AI-picked tracks`}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           )}
 
           {/* ── SONGS YOU MIGHT LIKE (20-30 tracks grid) ── */}
@@ -407,6 +464,62 @@ export const MainView: React.FC<MainViewProps> = ({
         </div>
       )}
 
+      {/* ----------------- AI PLAYLIST FULL VIEW ----------------- */}
+      {viewingAiPlaylist && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <button
+            onClick={() => setViewingAiPlaylistId(null)}
+            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors mb-2"
+          >
+            ← Back
+          </button>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-5">
+            {(() => {
+              const [c1, c2] = getGradientColors(viewingAiPlaylist.name);
+              return (
+                <div
+                  className="w-40 h-40 sm:w-52 sm:h-52 rounded-2xl flex items-center justify-center text-6xl shadow-2xl shrink-0"
+                  style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
+                >
+                  <span>{viewingAiPlaylist.emoji}</span>
+                </div>
+              );
+            })()}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#1DB954]" />
+                <span className="text-xs font-bold text-[#1DB954] uppercase tracking-wide">AI Mix</span>
+              </div>
+              <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
+                {viewingAiPlaylist.name}
+              </h1>
+              <p className="text-sm text-zinc-400">
+                {viewingAiPlaylist.description || `${viewingAiPlaylist.tracks.length} AI-picked tracks`}
+              </p>
+              <p className="text-xs text-zinc-500">{viewingAiPlaylist.tracks.length} songs</p>
+              <button
+                onClick={() => onPlayTrack(viewingAiPlaylist.tracks[0], viewingAiPlaylist.tracks)}
+                className="mt-2 flex items-center gap-2 bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold px-6 py-3 rounded-full transition-all active:scale-95"
+              >
+                <Play className="w-4 h-4 fill-black" />
+                Play
+              </button>
+            </div>
+          </div>
+
+          <TrackTable
+            tracks={viewingAiPlaylist.tracks}
+            currentTrackId={currentTrack?.id || null}
+            isPlaying={isPlaying}
+            likedTrackIds={likedTrackIds}
+            onPlayTrack={(track) => onPlayTrack(track, viewingAiPlaylist.tracks)}
+            onToggleLike={onToggleLike}
+            onAddToPlaylist={onAddToPlaylist}
+            onAddToQueue={onAddToQueue}
+          />
+        </div>
+      )}
 
       {/* ----------------- ALL SONGS TAB ----------------- */}
       {activeTab === 'allSongs' && (
@@ -500,6 +613,43 @@ export const MainView: React.FC<MainViewProps> = ({
       {/* ----------------- SEARCH TAB ----------------- */}
       {activeTab === 'search' && (
         <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Search input — the header's search box is hidden on mobile
+              (sm:block), so this is the only way phone/tablet users can
+              actually type a query. Kept in sync with the same searchQuery
+              state the header uses, so it also works as a normal filter box
+              on desktop where the header input is visible too. */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="What do you want to listen to?"
+              autoFocus
+              className="w-full rounded-full pl-10 pr-9 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
+              style={{
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.10)',
+              }}
+              onFocusCapture={(e) => {
+                e.currentTarget.style.border = '1px solid #1DB954';
+                e.currentTarget.style.background = 'rgba(255,255,255,0.10)';
+              }}
+              onBlurCapture={(e) => {
+                e.currentTarget.style.border = '1px solid rgba(255,255,255,0.10)';
+                e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white p-0.5 rounded-full transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-extrabold text-white tracking-tight">
               Search Results {searchQuery && <span className="text-zinc-400 text-lg font-normal">"{searchQuery}"</span>}

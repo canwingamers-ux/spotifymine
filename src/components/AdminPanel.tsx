@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Shield, Key, Search, Trash2, Loader2, RefreshCcw, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { Shield, Key, Search, Trash2, Loader2, RefreshCcw, Eye, EyeOff, AlertTriangle, Sparkles } from 'lucide-react';
 import { Track } from '../types';
 import { Storage } from '../utils/storage';
 import { HF_CONFIG } from '../utils/audioUtils';
@@ -19,6 +19,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 }) => {
   const [apiKey, setApiKeyState] = useState(() => Storage.getHfAdminKey());
   const [showKey, setShowKey] = useState(false);
+  const [geminiKey, setGeminiKeyState] = useState(() => Storage.getGeminiKey());
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [search, setSearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -26,6 +28,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const saveKey = () => {
     Storage.setHfAdminKey(apiKey.trim());
     addToast(apiKey.trim() ? 'API key saved to this browser' : 'API key cleared', 'success');
+  };
+
+  const saveGeminiKey = () => {
+    Storage.setGeminiKey(geminiKey.trim());
+    addToast(
+      geminiKey.trim()
+        ? 'Gemini key saved — reload the app to generate today\u2019s AI mixes'
+        : 'Gemini key cleared',
+      'success'
+    );
   };
 
   const filteredTracks = useMemo(() => {
@@ -154,6 +166,82 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             Save Key
           </button>
         </div>
+      </div>
+
+      {/* ── GEMINI API KEY CARD (powers the AI Mixes row) ── */}
+      <div
+        className="rounded-2xl p-5 space-y-3"
+        style={{
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        <div className="flex items-center gap-2.5 mb-1">
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(29,185,84,0.12)' }}
+          >
+            <Sparkles className="w-4 h-4" style={{ color: '#1DB954' }} />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white">Gemini API Key</p>
+            <p className="text-[11px]" style={{ color: '#52525b' }}>
+              For this to work reliably for <b>every visitor</b>, set <code>GEMINI_API_KEY</code> in your
+              Vercel project's Environment Variables instead (Settings → Environment Variables → redeploy).
+              The key below is only a local fallback used if no server key is configured — it's stored
+              in this browser only, so it depends on this browser being the one that triggers each day's refresh.{' '}
+              <a
+                href="https://aistudio.google.com/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+                style={{ color: '#1DB954' }}
+              >
+                Get a free key
+              </a>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <input
+              type={showGeminiKey ? 'text' : 'password'}
+              value={geminiKey}
+              onChange={(e) => setGeminiKeyState(e.target.value)}
+              placeholder="AIzaSy..."
+              className="w-full rounded-xl pl-3.5 pr-10 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none transition-all font-mono"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.10)',
+              }}
+              onFocusCapture={e => { e.currentTarget.style.border = '1px solid rgba(29,185,84,0.5)'; }}
+              onBlurCapture={e => { e.currentTarget.style.border = '1px solid rgba(255,255,255,0.10)'; }}
+            />
+            <button
+              onClick={() => setShowGeminiKey(!showGeminiKey)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+              style={{ color: '#52525b' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#ffffff')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#52525b')}
+              title={showGeminiKey ? 'Hide key' : 'Show key'}
+            >
+              {showGeminiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <button
+            onClick={saveGeminiKey}
+            className="px-5 py-2.5 rounded-xl font-bold text-sm text-black transition-all active:scale-95 shrink-0 hover:brightness-110"
+            style={{ background: 'linear-gradient(135deg, #1DB954, #1ed760)' }}
+          >
+            Save Key
+          </button>
+        </div>
+        <p className="text-[11px]" style={{ color: '#52525b' }}>
+          The mixes regenerate once every 24 hours and look the same for every visitor that day.
+          With <code>GEMINI_API_KEY</code> set on Vercel, that refresh always works. Without it, it only
+          works on days someone with a key saved here happens to load the app.
+        </p>
       </div>
 
       {/* ── SONGS LIST CARD ── */}

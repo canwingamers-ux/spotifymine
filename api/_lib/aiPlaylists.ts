@@ -1,83 +1,69 @@
+// Used by server.ts for local dev only. The Vercel-deployed version
+// (api/ai-playlists.ts) is intentionally self-contained instead of
+// importing this file — see the comment at the top of api/hf-tree.ts for
+// why cross-file imports from api/_lib/* don't reliably survive Vercel's
+// deployment bundling for standalone API functions.
 import { fetchLibrary, HFTrackDescriptor } from "./hf";
 
-export interface AiPlaylist {
-  id: string;
-  name: string;
-  emoji: string;
-  description: string;
-  paths: string[];
-}
+const GEMINI_MODEL = "gemini-3.6-flash";
+const MIN_TRACKS_PER_MIX = 2;
+
+const TARGET_MIXES: { name: string; emoji: string; hint: string }[] = [
+  { name: "Punjabi Mix", emoji: "🎧", hint: "Punjabi-language tracks" },
+  { name: "Haryanvi Mix", emoji: "🌾", hint: "Haryanvi-language tracks" },
+  { name: "Hindi Mix", emoji: "🎬", hint: "Hindi-language tracks" },
+  { name: "Love Mix", emoji: "❤️", hint: "romantic / love songs, any language" },
+];
 
 export interface AiPlaylistsResult {
-  generatedAt: string | null;
-  playlists: AiPlaylist[];
+  generatedAt: string;
+  playlists: { id: string; name: string; emoji: string; description: string; paths: string[] }[];
   note?: string;
 }
 
-// The exact mixes requested. Add/remove entries here to change what gets
-// generated — the model is told to skip any mix it can't fill.
-const TARGET_MIXES = [
-  { name: "Haryanvi Mix", emoji: "🎧", hint: "Haryanvi-language songs, Haryanvi folk/pop, Haryanvi artists" },
-  { name: "Love Mix", emoji: "❤️", hint: "romantic / love songs, any language" },
-  { name: "Hindi Mix", emoji: "🎶", hint: "Hindi-language Bollywood/pop songs" },
-  { name: "Punjabi Mix", emoji: "🥁", hint: "Punjabi-language songs, Punjabi pop/folk" },
-];
-
-const MIN_TRACKS_PER_MIX = 2;
-const GEMINI_MODEL = "gemini-3.6-flash";
-
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-}
-
-function emojiFor(name: string): string {
-  return TARGET_MIXES.find((m) => m.name.toLowerCase() === name.toLowerCase())?.emoji || "🎵";
-}
-
 function buildPrompt(library: HFTrackDescriptor[]): string {
-  const listing = library.map((t, i) => `${i}: ${t.title} - ${t.artist}`).join("\n");
-  return `You are curating themed playlists for a music streaming app, using ONLY the exact song library below.
+  const list = library
+    .map((t, i) => `${i}. ${t.artist ? `${t.artist} - ` : ""}${t.title}`)
+    .join("\n");
+  const mixLines = TARGET_MIXES.map((m) => `- "${m.name}": ${m.hint}`).join("\n");
 
-Build EXACTLY these playlists, selecting only the indexes of songs that genuinely fit each theme:
-${TARGET_MIXES.map((m) => `- "${m.name}": ${m.hint}`).join("\n")}
+  return `You are curating themed playlists for a music app from a fixed song library. Below is every song available, numbered.
+
+${list}
+
+Build these exact playlists, choosing ONLY from the numbered list above (never invent a song that isn't listed):
+${mixLines}
 
 Rules:
-- Only include a song index if it truly fits the theme, based on its title/artist (language, mood, or genre cues).
-- If a mix has fewer than ${MIN_TRACKS_PER_MIX} genuinely matching songs, omit that mix entirely from the output.
-- Never invent songs — only use indexes that appear in the list below.
-- Write a short, punchy 1-sentence description (under 12 words) per playlist.
-- A song may appear in more than one playlist if it genuinely fits both.
-
-Library (index: title - artist):
-${listing}`;
+- For each playlist, return the indices (numbers from the list above) of every song that genuinely fits that theme. Include ALL matching songs, not just a few.
+- A song can appear in more than one playlist if it genuinely fits more than one theme.
+- Only include a playlist in your output if it has at least ${MIN_TRACKS_PER_MIX} matching songs.
+- Write a short one-sentence description for each playlist.
+- Do not include songs that don't clearly match — when unsure, leave it out.`;
 }
 
 const RESPONSE_SCHEMA = {
-  type: "object",
+  type: "OBJECT",
   properties: {
     playlists: {
-      type: "array",
+      type: "ARRAY",
       items: {
-        type: "object",
+        type: "OBJECT",
         properties: {
-          name: { type: "string" },
-          description: { type: "string" },
-          trackIndexes: { type: "array", items: { type: "integer" } },
+          name: { type: "STRING" },
+          description: { type: "STRING" },
+          indices: { type: "ARRAY", items: { type: "INTEGER" } },
         },
-        required: ["name", "trackIndexes"],
+        required: ["name", "description", "indices"],
       },
     },
   },
   required: ["playlists"],
 };
 
-export async function generateAiPlaylists(apiKey: string | undefined): Promise<AiPlaylistsResult> {
+export async function generateAiPlaylists(apiKey?: string): Promise<AiPlaylistsResult> {
   if (!apiKey) {
-    return {
-      generatedAt: null,
-      playlists: [],
-      note: "AI playlists are disabled — GEMINI_API_KEY is not configured on the server.",
-    };
+    return { generatedAt: new Date().toISOString(), playlists: [], note: "No Gemini API key configured yet." };
   }
 
   const library = await fetchLibrary();
@@ -85,9 +71,6 @@ export async function generateAiPlaylists(apiKey: string | undefined): Promise<A
     return { generatedAt: new Date().toISOString(), playlists: [] };
   }
 
-  // Google renames/deprecates Gemini model IDs fairly often. Try the
-  // current model first, and fall back to older-but-still-live ones if it
-  // 404s, instead of the whole feature silently going dark.
   const modelCandidates = [GEMINI_MODEL, "gemini-3.5-flash", "gemini-2.5-flash"];
   let geminiRes: Response | null = null;
   let lastErrText = "";
@@ -97,10 +80,7 @@ export async function generateAiPlaylists(apiKey: string | undefined): Promise<A
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: buildPrompt(library) }] }],
           generationConfig: {
@@ -112,7 +92,7 @@ export async function generateAiPlaylists(apiKey: string | undefined): Promise<A
       }
     );
     if (geminiRes.ok) break;
-    if (geminiRes.status !== 404) break; // only retry on "model not found"
+    if (geminiRes.status !== 404) break;
     lastErrText = await geminiRes.text().catch(() => "");
   }
 
@@ -122,34 +102,29 @@ export async function generateAiPlaylists(apiKey: string | undefined): Promise<A
     return {
       generatedAt: new Date().toISOString(),
       playlists: [],
-      note: "AI playlist generation failed upstream.",
+      note: `AI playlist generation failed upstream (${geminiRes?.status || "network error"}).`,
     };
   }
 
   const geminiData = await geminiRes.json();
-  const rawText: string | undefined = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  let parsed: { playlists: { name: string; description?: string; trackIndexes: number[] }[] };
+  const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  let parsed: { playlists?: { name: string; description: string; indices: number[] }[] };
   try {
-    parsed = JSON.parse(rawText || "");
+    parsed = JSON.parse(rawText);
   } catch {
-    return {
-      generatedAt: new Date().toISOString(),
-      playlists: [],
-      note: "AI response wasn't valid JSON.",
-    };
+    parsed = { playlists: [] };
   }
 
-  const playlists: AiPlaylist[] = (parsed.playlists || [])
-    .map((p) => {
-      const uniqueIndexes = Array.from(new Set(p.trackIndexes || []));
-      const paths = uniqueIndexes
-        .map((i) => library[i]?.path)
-        .filter((x): x is string => Boolean(x));
+  const playlists = (parsed.playlists || [])
+    .map((p, i) => {
+      const paths = (p.indices || [])
+        .map((idx) => library[idx]?.path)
+        .filter((p): p is string => Boolean(p));
+      const target = TARGET_MIXES.find((m) => m.name.toLowerCase() === p.name?.toLowerCase());
       return {
-        id: slugify(p.name),
-        name: p.name,
-        emoji: emojiFor(p.name),
+        id: `ai_${i}_${p.name?.replace(/\s+/g, "_").toLowerCase() || i}`,
+        name: p.name || `Mix ${i + 1}`,
+        emoji: target?.emoji || "✨",
         description: p.description || "",
         paths,
       };

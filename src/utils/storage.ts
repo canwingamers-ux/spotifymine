@@ -10,6 +10,7 @@ const KEYS = {
   PLAY_COUNTS: 'spotify_play_counts_v1',
   RECENTLY_PLAYED: 'spotify_recently_played_v1',
   HF_ADMIN_KEY: 'spotify_hf_admin_key_v1',
+  GEMINI_KEY: 'spotify_gemini_key_v1',
 };
 
 export const Storage = {
@@ -187,6 +188,28 @@ export const Storage = {
       }
     } catch (e) {
       console.error('Failed to save admin key', e);
+    }
+  },
+
+  // ---- AI Mixes: Gemini API key (kept in this browser only, sent as a
+  // request header — never baked into the deployed frontend bundle) ----
+  getGeminiKey(): string {
+    try {
+      return localStorage.getItem(KEYS.GEMINI_KEY) || '';
+    } catch {
+      return '';
+    }
+  },
+
+  setGeminiKey(key: string): void {
+    try {
+      if (key) {
+        localStorage.setItem(KEYS.GEMINI_KEY, key);
+      } else {
+        localStorage.removeItem(KEYS.GEMINI_KEY);
+      }
+    } catch (e) {
+      console.error('Failed to save Gemini key', e);
     }
   }
 };

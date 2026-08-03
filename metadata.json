@@ -1,5 +1,5 @@
 {
-  "name": "Spotify Clone",
+  "name": "SpotifyMine",
   "description": "Full-featured Spotify dark-mode web application streaming audio directly from Hugging Face music library.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

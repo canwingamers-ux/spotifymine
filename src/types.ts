@@ -26,6 +26,14 @@ export interface Playlist {
   isCustom?: boolean;
 }
 
+export interface AiPlaylist {
+  id: string;
+  name: string;
+  emoji: string;
+  description: string;
+  tracks: Track[];
+}
+
 export type RepeatMode = 'off' | 'all' | 'one';
 
 export type ActiveTab = 'home' | 'search' | 'library' | 'liked' | 'playlist' | 'lyrics' | 'admin' | 'allSongs';
