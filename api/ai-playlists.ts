@@ -20,8 +20,9 @@ const MIN_TRACKS_PER_MIX = 2;
 // The four mixes explicitly requested — Gemini only ever picks real tracks
 // from the actual library to fill these, never invents song names.
 const TARGET_MIXES: { name: string; emoji: string; hint: string }[] = [
-  { name: "Punjabi Mix", emoji: "🎧", hint: "Punjabi-language tracks" },
-  { name: "Haryanvi Mix", emoji: "🌾", hint: "Haryanvi-language tracks" },
+  { name: "Punjabi Mix", emoji: "🎧", hint: "Punjabi-language tracks only" },
+  { name: "Haryanvi Mix", emoji: "🌾", hint: "Haryanvi-language tracks only" },
+  { name: "Punjabi + Haryanvi Mix", emoji: "🔥", hint: "combined — every Punjabi-language AND Haryanvi-language track together in one mix" },
   { name: "Hindi Mix", emoji: "🎬", hint: "Hindi-language tracks" },
   { name: "Love Mix", emoji: "❤️", hint: "romantic / love songs, any language" },
 ];
@@ -208,6 +209,7 @@ export default async function handler(req: any, res: any) {
     let geminiRes: Response | null = null;
     let lastErrText = "";
 
+    const RETRYABLE_STATUSES = new Set([404, 429, 500, 502, 503, 504]);
     for (const model of modelCandidates) {
       geminiRes = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -225,8 +227,8 @@ export default async function handler(req: any, res: any) {
         }
       );
       if (geminiRes.ok) break;
-      if (geminiRes.status !== 404) break;
       lastErrText = await geminiRes.text().catch(() => "");
+      if (!RETRYABLE_STATUSES.has(geminiRes.status)) break; // e.g. bad key (401/403) — no point trying other models
     }
 
     if (!geminiRes || !geminiRes.ok) {

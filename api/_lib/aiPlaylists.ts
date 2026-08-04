@@ -9,8 +9,9 @@ const GEMINI_MODEL = "gemini-3.6-flash";
 const MIN_TRACKS_PER_MIX = 2;
 
 const TARGET_MIXES: { name: string; emoji: string; hint: string }[] = [
-  { name: "Punjabi Mix", emoji: "🎧", hint: "Punjabi-language tracks" },
-  { name: "Haryanvi Mix", emoji: "🌾", hint: "Haryanvi-language tracks" },
+  { name: "Punjabi Mix", emoji: "🎧", hint: "Punjabi-language tracks only" },
+  { name: "Haryanvi Mix", emoji: "🌾", hint: "Haryanvi-language tracks only" },
+  { name: "Punjabi + Haryanvi Mix", emoji: "🔥", hint: "combined — every Punjabi-language AND Haryanvi-language track together in one mix" },
   { name: "Hindi Mix", emoji: "🎬", hint: "Hindi-language tracks" },
   { name: "Love Mix", emoji: "❤️", hint: "romantic / love songs, any language" },
 ];
@@ -75,6 +76,7 @@ export async function generateAiPlaylists(apiKey?: string): Promise<AiPlaylistsR
   let geminiRes: Response | null = null;
   let lastErrText = "";
 
+  const RETRYABLE_STATUSES = new Set([404, 429, 500, 502, 503, 504]);
   for (const model of modelCandidates) {
     geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -92,8 +94,8 @@ export async function generateAiPlaylists(apiKey?: string): Promise<AiPlaylistsR
       }
     );
     if (geminiRes.ok) break;
-    if (geminiRes.status !== 404) break;
     lastErrText = await geminiRes.text().catch(() => "");
+    if (!RETRYABLE_STATUSES.has(geminiRes.status)) break;
   }
 
   if (!geminiRes || !geminiRes.ok) {

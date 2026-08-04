@@ -894,6 +894,65 @@ export default function App() {
     };
   }, [handleTogglePlayPause, handleSeek, handleToggleMute, duration]);
 
+  // Media Session API — this is what makes background/lock-screen playback
+  // actually work correctly. Without it, browsers have no signal that this
+  // tab is running an active media session, so backgrounded/locked-screen
+  // tabs can get frozen by the browser's power-saving throttling — the
+  // *current* song keeps playing (native OS audio session), but the JS
+  // callback that would advance to the next track when it ends never gets
+  // to run. Registering metadata + action handlers here also gives proper
+  // lock-screen/notification playback controls (title, artist, artwork,
+  // play/pause/next/previous) for free.
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentTrack) return;
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: currentTrack.title,
+      artist: currentTrack.artist || 'Unknown Artist',
+      album: currentTrack.album || '',
+      artwork: currentTrack.coverArtUrl
+        ? [
+            { src: currentTrack.coverArtUrl, sizes: '512x512', type: 'image/jpeg' },
+            { src: currentTrack.coverArtUrl, sizes: '256x256', type: 'image/jpeg' },
+            { src: currentTrack.coverArtUrl, sizes: '96x96', type: 'image/jpeg' },
+          ]
+        : [],
+    });
+  }, [currentTrack]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    navigator.mediaSession.setActionHandler('play', () => handleTogglePlayPause());
+    navigator.mediaSession.setActionHandler('pause', () => handleTogglePlayPause());
+    navigator.mediaSession.setActionHandler('previoustrack', () => handlePrevTrack());
+    navigator.mediaSession.setActionHandler('nexttrack', () => handleNextTrack());
+    try {
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime != null) handleSeek(details.seekTime);
+      });
+    } catch {
+      // seekto isn't supported in every browser — safe to ignore
+    }
+
+    return () => {
+      navigator.mediaSession.setActionHandler('play', null);
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('previoustrack', null);
+      navigator.mediaSession.setActionHandler('nexttrack', null);
+      try {
+        navigator.mediaSession.setActionHandler('seekto', null);
+      } catch {
+        // ignore
+      }
+    };
+  }, [handleTogglePlayPause, handlePrevTrack, handleNextTrack, handleSeek]);
+
   // Stable "Up Next" list for the Queue modal — derived from the one
   // pre-shuffled order (not recomputed/re-randomized on every render).
   const upNextQueue = useMemo(() => {

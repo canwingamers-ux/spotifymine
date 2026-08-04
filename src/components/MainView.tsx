@@ -31,7 +31,7 @@ interface MainViewProps {
   likedTrackIds: string[];
   searchQuery: string;
   setSearchQuery: (q: string) => void;
-  onPlayTrack: (track: Track) => void;
+  onPlayTrack: (track: Track, queue?: Track[]) => void;
   onToggleLike: (trackId: string, e: React.MouseEvent) => void;
   playlists: Playlist[];
   activePlaylistId: string | null;
@@ -137,7 +137,9 @@ export const MainView: React.FC<MainViewProps> = ({
   // Active custom playlist
   const activePlaylist = playlists.find((p) => p.id === activePlaylistId);
   const playlistTracks = activePlaylist
-    ? tracks.filter((t) => activePlaylist.trackIds.includes(t.id))
+    ? activePlaylist.trackIds
+        .map((id) => tracks.find((t) => t.id === id))
+        .filter((t): t is Track => Boolean(t))
     : [];
 
   // Tracks not yet in active playlist (for quick recommendation adding)
@@ -580,7 +582,7 @@ export const MainView: React.FC<MainViewProps> = ({
                     isPlaying={isPlaying}
                     isCurrentTrack={currentTrack?.id === track.id}
                     isLiked={likedTrackIds.includes(track.id)}
-                    onPlay={onPlayTrack}
+                    onPlay={(t) => onPlayTrack(t, allSongsTracks)}
                     onToggleLike={onToggleLike}
                     onAddToPlaylist={onAddToPlaylist}
                     onAddToQueue={onAddToQueue}
@@ -593,7 +595,7 @@ export const MainView: React.FC<MainViewProps> = ({
                 currentTrackId={currentTrack?.id || null}
                 isPlaying={isPlaying}
                 likedTrackIds={likedTrackIds}
-                onPlayTrack={onPlayTrack}
+                onPlayTrack={(track) => onPlayTrack(track, allSongsTracks)}
                 onToggleLike={onToggleLike}
                 onAddToPlaylist={onAddToPlaylist}
                 onAddToQueue={onAddToQueue}
@@ -686,7 +688,7 @@ export const MainView: React.FC<MainViewProps> = ({
                     isPlaying={isPlaying}
                     isCurrentTrack={currentTrack?.id === track.id}
                     isLiked={likedTrackIds.includes(track.id)}
-                    onPlay={onPlayTrack}
+                    onPlay={(t) => onPlayTrack(t, filteredTracks)}
                     onToggleLike={onToggleLike}
                     onAddToPlaylist={onAddToPlaylist}
                 onAddToQueue={onAddToQueue}
@@ -699,7 +701,7 @@ export const MainView: React.FC<MainViewProps> = ({
                 currentTrackId={currentTrack?.id || null}
                 isPlaying={isPlaying}
                 likedTrackIds={likedTrackIds}
-                onPlayTrack={onPlayTrack}
+                onPlayTrack={(track) => onPlayTrack(track, filteredTracks)}
                 onToggleLike={onToggleLike}
                 onAddToPlaylist={onAddToPlaylist}
                 onAddToQueue={onAddToQueue}
@@ -756,7 +758,7 @@ export const MainView: React.FC<MainViewProps> = ({
 
             {/* Liked Songs Tile */}
             <div
-              onClick={() => onPlayTrack(likedTracks[0] || tracks[0])}
+              onClick={() => onPlayTrack(likedTracks[0] || tracks[0], likedTracks.length > 0 ? likedTracks : tracks)}
               className="p-6 rounded-2xl bg-gradient-to-br from-indigo-700 via-purple-700 to-pink-600 flex flex-col justify-between cursor-pointer group hover:scale-[1.02] transition-transform shadow-xl min-h-[200px]"
             >
               <div className="flex items-start justify-between">
@@ -812,7 +814,10 @@ export const MainView: React.FC<MainViewProps> = ({
 
             {/* Custom Playlists */}
             {playlists.map((pl) => {
-              const firstTrackInPl = tracks.find((t) => pl.trackIds.includes(t.id));
+              const playlistTracksInOrder = pl.trackIds
+                .map((id) => tracks.find((t) => t.id === id))
+                .filter((t): t is Track => Boolean(t));
+              const firstTrackInPl = playlistTracksInOrder[0];
 
               return (
                 <div
@@ -840,7 +845,7 @@ export const MainView: React.FC<MainViewProps> = ({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (firstTrackInPl) onPlayTrack(firstTrackInPl);
+                          if (firstTrackInPl) onPlayTrack(firstTrackInPl, playlistTracksInOrder);
                         }}
                         className="w-12 h-12 rounded-full bg-[#1DB954] text-black flex items-center justify-center opacity-0 group-hover:opacity-100 group-hover:scale-105 transition-all shadow-2xl"
                         title="Play Playlist"
@@ -868,7 +873,7 @@ export const MainView: React.FC<MainViewProps> = ({
               currentTrackId={currentTrack?.id || null}
               isPlaying={isPlaying}
               likedTrackIds={likedTrackIds}
-              onPlayTrack={onPlayTrack}
+              onPlayTrack={(track) => onPlayTrack(track, tracks)}
               onToggleLike={onToggleLike}
               onAddToPlaylist={onAddToPlaylist}
                 onAddToQueue={onAddToQueue}
@@ -906,7 +911,7 @@ export const MainView: React.FC<MainViewProps> = ({
           {likedTracks.length > 0 && (
             <div className="flex items-center gap-4">
               <button
-                onClick={() => onPlayTrack(likedTracks[0])}
+                onClick={() => onPlayTrack(likedTracks[0], likedTracks)}
                 className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#1DB954] hover:bg-[#1ed760] hover:scale-105 active:scale-95 text-black flex items-center justify-center shadow-2xl transition-all"
                 title="Play All Liked Songs"
               >
@@ -920,7 +925,7 @@ export const MainView: React.FC<MainViewProps> = ({
             currentTrackId={currentTrack?.id || null}
             isPlaying={isPlaying}
             likedTrackIds={likedTrackIds}
-            onPlayTrack={onPlayTrack}
+            onPlayTrack={(track) => onPlayTrack(track, likedTracks)}
             onToggleLike={onToggleLike}
             onAddToPlaylist={onAddToPlaylist}
                 onAddToQueue={onAddToQueue}
@@ -969,7 +974,7 @@ export const MainView: React.FC<MainViewProps> = ({
           {playlistTracks.length > 0 && (
             <div className="flex items-center gap-4">
               <button
-                onClick={() => onPlayTrack(playlistTracks[0])}
+                onClick={() => onPlayTrack(playlistTracks[0], playlistTracks)}
                 className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#1DB954] hover:bg-[#1ed760] hover:scale-105 active:scale-95 text-black flex items-center justify-center shadow-2xl transition-all"
                 title="Play Playlist"
               >
@@ -985,7 +990,7 @@ export const MainView: React.FC<MainViewProps> = ({
               currentTrackId={currentTrack?.id || null}
               isPlaying={isPlaying}
               likedTrackIds={likedTrackIds}
-              onPlayTrack={onPlayTrack}
+              onPlayTrack={(track) => onPlayTrack(track, playlistTracks)}
               onToggleLike={onToggleLike}
               onRemoveFromPlaylist={(trackId) => onRemoveFromPlaylist(trackId, activePlaylist.id)}
             />
