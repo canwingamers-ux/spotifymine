@@ -7,14 +7,17 @@
 // (api/_lib/aiPlaylists.ts is still used by server.ts for local dev, which
 // doesn't have this issue.)
 //
-// IMPORTANT — timing: Vercel logs showed this endpoint hitting
-// "Task timed out after 10 seconds" with ZERO application-level error logs,
-// meaning the whole function (library fetch + Gemini call, retried across
-// up to 3 models) was hard-killed by the platform mid-request, before our
-// own try/catch ever got a chance to run or respond. Everything below is
-// built around one hard rule: the handler must ALWAYS send its own response
-// well before Vercel's real 10-second limit, even if that means responding
-// with "try again shortly" instead of actual playlists.
+// IMPORTANT — timing architecture: Vercel logs showed this endpoint hitting
+// a hard "Task timed out after 10 seconds" kill with zero application
+// logs. The original design asked Gemini to classify the WHOLE library
+// into all 5 mixes in a single call — one big reasoning task with a large
+// combined output. That's just slow. This version instead fires one
+// SMALLER, SIMPLER request per mix, all in PARALLEL (Promise.all) — total
+// wall-clock time is roughly the slowest single mix's latency, not the sum
+// of all five, and each individual call has much less to reason about.
+// Every call also carries its own AbortController tied to the shared
+// deadline, and a failed/slow individual mix just gets skipped (partial
+// results) instead of failing the whole request.
 
 export const config = {
   runtime: "nodejs",
@@ -26,16 +29,16 @@ const AUDIO_EXTS = [".mp3", ".wav", ".m4a", ".ogg", ".flac"];
 const GEMINI_MODEL = "gemini-3.6-flash";
 const MIN_TRACKS_PER_MIX = 2;
 
-// Hard ceiling for the WHOLE handler (library fetch + every Gemini attempt
-// combined), kept well under Vercel's real 10s limit so we always control
-// the response ourselves instead of risking a platform-level 504.
+// Hard ceiling for the WHOLE handler, kept well under Vercel's real 10s
+// limit so we always control the response ourselves.
 const HANDLER_DEADLINE_MS = 8500;
+const LIBRARY_FETCH_BUDGET_MS = 2000;
 
 const TARGET_MIXES: { name: string; emoji: string; hint: string; description: string }[] = [
-  { name: "Punjabi Mix", emoji: "🎧", hint: "Punjabi-language tracks only", description: "Punjabi-language tracks from your library." },
-  { name: "Haryanvi Mix", emoji: "🌾", hint: "Haryanvi-language tracks only", description: "Haryanvi-language tracks from your library." },
-  { name: "Punjabi + Haryanvi Mix", emoji: "🔥", hint: "combined — every Punjabi-language AND Haryanvi-language track together in one mix", description: "Punjabi and Haryanvi tracks together in one mix." },
-  { name: "Hindi Mix", emoji: "🎬", hint: "Hindi-language tracks", description: "Hindi-language tracks from your library." },
+  { name: "Punjabi Mix", emoji: "🎧", hint: "Punjabi-language songs", description: "Punjabi-language tracks from your library." },
+  { name: "Haryanvi Mix", emoji: "🌾", hint: "Haryanvi-language songs", description: "Haryanvi-language tracks from your library." },
+  { name: "Punjabi + Haryanvi Mix", emoji: "🔥", hint: "Punjabi-language OR Haryanvi-language songs (both together)", description: "Punjabi and Haryanvi tracks together in one mix." },
+  { name: "Hindi Mix", emoji: "🎬", hint: "Hindi-language songs", description: "Hindi-language tracks from your library." },
   { name: "Love Mix", emoji: "❤️", hint: "romantic / love songs, any language", description: "Romantic songs, any language." },
 ];
 
@@ -144,70 +147,59 @@ async function fetchLibrary(deadline: number): Promise<HFTrackDescriptor[]> {
     });
 }
 
-// No descriptions requested from Gemini anymore — generating prose for each
-// mix adds meaningful output tokens (and therefore latency) for something
-// we can just supply statically from TARGET_MIXES. This alone noticeably
-// shrinks response time.
-function buildPrompt(library: HFTrackDescriptor[]): string {
-  const list = library
-    .map((t, i) => `${i}. ${t.artist ? `${t.artist} - ` : ""}${t.title}`)
-    .join("\n");
-
-  const mixLines = TARGET_MIXES.map((m) => `- "${m.name}": ${m.hint}`).join("\n");
-
-  return `Classify songs from a fixed library into playlists. Songs (numbered):
-
-${list}
-
-Playlists to fill, using ONLY the numbers above (never invent a song):
-${mixLines}
-
-Rules:
-- Return every matching index per playlist, not just a few.
-- A song can appear in more than one playlist if it fits more than one.
-- Only include a playlist if it has at least ${MIN_TRACKS_PER_MIX} matches.
-- Skip unclear matches.
-- Output indices only — no descriptions, no extra text.`;
-}
-
-const RESPONSE_SCHEMA = {
+const SINGLE_MIX_SCHEMA = {
   type: "OBJECT",
   properties: {
-    playlists: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          name: { type: "STRING" },
-          indices: { type: "ARRAY", items: { type: "INTEGER" } },
-        },
-        required: ["name", "indices"],
-      },
-    },
+    indices: { type: "ARRAY", items: { type: "INTEGER" } },
   },
-  required: ["playlists"],
+  required: ["indices"],
 };
 
-async function callGemini(model: string, apiKey: string, prompt: string, timeoutMs: number): Promise<Response> {
+function buildSingleMixPrompt(songList: string, hint: string): string {
+  return `Numbered song library:
+
+${songList}
+
+Return the index of every song that is ${hint}. Use ONLY the numbers above, never invent one. Include every genuine match, not just a few. Skip anything unclear. Output indices only.`;
+}
+
+async function classifyOneMix(
+  mix: { name: string; hint: string },
+  songList: string,
+  apiKey: string,
+  timeoutMs: number
+): Promise<number[] | null> {
+  if (timeoutMs < 800) return null;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.max(timeoutMs, 500));
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
       {
         method: "POST",
         signal: controller.signal,
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          contents: [{ role: "user", parts: [{ text: buildSingleMixPrompt(songList, mix.hint) }] }],
           generationConfig: {
             responseMimeType: "application/json",
-            responseSchema: RESPONSE_SCHEMA,
-            temperature: 0.3,
+            responseSchema: SINGLE_MIX_SCHEMA,
+            temperature: 0.2,
           },
         }),
       }
     );
+    if (!res.ok) {
+      console.error(`Gemini error for "${mix.name}":`, res.status, await res.text().catch(() => ""));
+      return null;
+    }
+    const data = await res.json();
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const parsed = JSON.parse(rawText);
+    return Array.isArray(parsed.indices) ? parsed.indices : [];
+  } catch (e: any) {
+    console.error(`"${mix.name}" classification failed:`, e?.name === "AbortError" ? "timed out" : e?.message);
+    return null;
   } finally {
     clearTimeout(timer);
   }
@@ -235,85 +227,53 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const library = await fetchLibrary(Date.now() + 2500); // library fetch gets its own short slice of the budget
+    const library = await fetchLibrary(Date.now() + LIBRARY_FETCH_BUDGET_MS);
     if (library.length === 0) {
       res.setHeader("Cache-Control", "no-store");
       res.status(200).json({ generatedAt: new Date().toISOString(), playlists: [] });
       return;
     }
 
-    const prompt = buildPrompt(library);
-    const modelCandidates = [GEMINI_MODEL, "gemini-3.5-flash", "gemini-2.5-flash"];
-    const RETRYABLE_STATUSES = new Set([404, 429, 500, 502, 503, 504]);
+    const songList = library
+      .map((t, i) => `${i}. ${t.artist ? `${t.artist} - ` : ""}${t.title}`)
+      .join("\n");
 
-    let geminiRes: Response | null = null;
-    let lastErrText = "";
-    let ranOutOfTime = false;
+    // Fire all 5 mix classifications in parallel — total time is roughly
+    // the slowest single one, not the sum of all five.
+    const remaining = deadline - Date.now();
+    const results = await Promise.all(
+      TARGET_MIXES.map((mix) => classifyOneMix(mix, songList, apiKey, remaining))
+    );
 
-    for (const model of modelCandidates) {
-      const remaining = deadline - Date.now();
-      if (remaining < 1500) {
-        // Not enough of the budget left for a meaningful attempt — stop
-        // trying rather than risk getting hard-killed mid-request.
-        ranOutOfTime = true;
-        break;
-      }
-      try {
-        geminiRes = await callGemini(model, apiKey, prompt, remaining);
-      } catch (e: any) {
-        lastErrText = e?.name === "AbortError" ? "request timed out" : e?.message || "network error";
-        geminiRes = null;
-        continue; // try the next model if time remains
-      }
-      if (geminiRes.ok) break;
-      lastErrText = await geminiRes.text().catch(() => "");
-      if (!RETRYABLE_STATUSES.has(geminiRes.status)) break; // e.g. bad key — no point trying other models
-    }
+    const playlists = TARGET_MIXES.map((mix, i) => {
+      const indices = results[i];
+      const paths = (indices || [])
+        .map((idx) => library[idx]?.path)
+        .filter((p): p is string => Boolean(p));
+      return {
+        id: `ai_${i}_${mix.name.replace(/\s+/g, "_").toLowerCase()}`,
+        name: mix.name,
+        emoji: mix.emoji,
+        description: mix.description,
+        paths,
+      };
+    }).filter((p) => p.paths.length >= MIN_TRACKS_PER_MIX);
 
-    if (!geminiRes || !geminiRes.ok) {
-      console.error("Gemini API error:", geminiRes?.status, lastErrText);
+    const allFailed = results.every((r) => r === null);
+    const result: AiPlaylistsResult = {
+      generatedAt: new Date().toISOString(),
+      playlists,
+      ...(allFailed ? { note: "AI playlist generation is taking longer than usual — try again shortly." } : {}),
+    };
+
+    if (playlists.length > 0) {
+      // Shared across every visitor for 24h — the first request of the day
+      // triggers generation, everyone else for the rest of that day gets
+      // this identical cached response, at zero extra Gemini calls.
+      res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=3600");
+    } else {
       res.setHeader("Cache-Control", "no-store");
-      res.status(200).json({
-        generatedAt: new Date().toISOString(),
-        playlists: [],
-        note: ranOutOfTime
-          ? "AI playlist generation is taking longer than usual — try again shortly."
-          : `AI playlist generation failed upstream (${geminiRes?.status || lastErrText || "network error"}).`,
-      });
-      return;
     }
-
-    const geminiData = await geminiRes.json();
-    const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    let parsed: { playlists?: { name: string; indices: number[] }[] };
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      parsed = { playlists: [] };
-    }
-
-    const playlists = (parsed.playlists || [])
-      .map((p, i) => {
-        const paths = (p.indices || [])
-          .map((idx) => library[idx]?.path)
-          .filter((p): p is string => Boolean(p));
-        const target = TARGET_MIXES.find((m) => m.name.toLowerCase() === p.name?.toLowerCase());
-        return {
-          id: `ai_${i}_${p.name?.replace(/\s+/g, "_").toLowerCase() || i}`,
-          name: p.name || target?.name || `Mix ${i + 1}`,
-          emoji: target?.emoji || "✨",
-          description: target?.description || "",
-          paths,
-        };
-      })
-      .filter((p) => p.paths.length >= MIN_TRACKS_PER_MIX);
-
-    const result: AiPlaylistsResult = { generatedAt: new Date().toISOString(), playlists };
-
-    // Shared across every visitor for 24h — the first request of the day
-    // triggers generation, everyone else for the rest of that day gets
-    // this identical cached response, at zero extra Gemini calls.
-    res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=3600");
     res.status(200).json(result);
   } catch (err: any) {
     console.error("AI playlists error:", err);
