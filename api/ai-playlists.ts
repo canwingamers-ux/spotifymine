@@ -26,7 +26,12 @@ export const config = {
 const HF_USER = "CoolJaat";
 const HF_REPO = "my-music-library";
 const AUDIO_EXTS = [".mp3", ".wav", ".m4a", ".ogg", ".flac"];
-const GEMINI_MODEL = "gemini-3.6-flash";
+// gemini-2.5-flash leads the list because its free-tier quota is far more
+// generous (10-15 RPM / 250-1500 RPD) than gemini-3.6-flash's, which is
+// only 5 RPM / 20 RPD on the free tier — confirmed directly by the 429
+// RESOURCE_EXHAUSTED errors seen in production logs. 3.6/3.5 stay as
+// fallbacks for accounts with paid quota on the newer models.
+const MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-3.5-flash"];
 const MIN_TRACKS_PER_MIX = 2;
 
 // Hard ceiling for the WHOLE handler, kept well under Vercel's real 10s
@@ -167,42 +172,54 @@ async function classifyOneMix(
   mix: { name: string; hint: string },
   songList: string,
   apiKey: string,
-  timeoutMs: number
+  deadline: number
 ): Promise<number[] | null> {
-  if (timeoutMs < 800) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: "POST",
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: buildSingleMixPrompt(songList, mix.hint) }] }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: SINGLE_MIX_SCHEMA,
-            temperature: 0.2,
-          },
-        }),
+  const RETRYABLE_STATUSES = new Set([404, 429, 500, 502, 503, 504]);
+
+  for (const model of MODEL_CANDIDATES) {
+    const timeoutMs = deadline - Date.now();
+    if (timeoutMs < 800) return null;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          signal: controller.signal,
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: buildSingleMixPrompt(songList, mix.hint) }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              responseSchema: SINGLE_MIX_SCHEMA,
+              temperature: 0.2,
+            },
+          }),
+        }
+      );
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        console.error(`Gemini error for "${mix.name}" on ${model}:`, res.status, errText);
+        if (RETRYABLE_STATUSES.has(res.status)) continue; // different model = independent quota bucket
+        return null; // non-retryable (e.g. bad key) — no point trying other models
       }
-    );
-    if (!res.ok) {
-      console.error(`Gemini error for "${mix.name}":`, res.status, await res.text().catch(() => ""));
-      return null;
+
+      const data = await res.json();
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      const parsed = JSON.parse(rawText);
+      return Array.isArray(parsed.indices) ? parsed.indices : [];
+    } catch (e: any) {
+      clearTimeout(timer);
+      console.error(`"${mix.name}" on ${model} failed:`, e?.name === "AbortError" ? "timed out" : e?.message);
+      continue; // try next model if time remains
     }
-    const data = await res.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    const parsed = JSON.parse(rawText);
-    return Array.isArray(parsed.indices) ? parsed.indices : [];
-  } catch (e: any) {
-    console.error(`"${mix.name}" classification failed:`, e?.name === "AbortError" ? "timed out" : e?.message);
-    return null;
-  } finally {
-    clearTimeout(timer);
   }
+
+  return null;
 }
 
 export default async function handler(req: any, res: any) {
@@ -239,10 +256,11 @@ export default async function handler(req: any, res: any) {
       .join("\n");
 
     // Fire all 5 mix classifications in parallel — total time is roughly
-    // the slowest single one, not the sum of all five.
-    const remaining = deadline - Date.now();
+    // the slowest single one, not the sum of all five. Each one internally
+    // tries multiple models (independent quota buckets) if it hits a
+    // rate limit, using whatever's left of the shared deadline.
     const results = await Promise.all(
-      TARGET_MIXES.map((mix) => classifyOneMix(mix, songList, apiKey, remaining))
+      TARGET_MIXES.map((mix) => classifyOneMix(mix, songList, apiKey, deadline))
     );
 
     const playlists = TARGET_MIXES.map((mix, i) => {
@@ -259,18 +277,28 @@ export default async function handler(req: any, res: any) {
       };
     }).filter((p) => p.paths.length >= MIN_TRACKS_PER_MIX);
 
-    const allFailed = results.every((r) => r === null);
+    const succeededCount = results.filter((r) => r !== null).length;
+    const allFailed = succeededCount === 0;
+    const allSucceeded = succeededCount === TARGET_MIXES.length;
     const result: AiPlaylistsResult = {
       generatedAt: new Date().toISOString(),
       playlists,
       ...(allFailed ? { note: "AI playlist generation is taking longer than usual — try again shortly." } : {}),
+      ...(!allFailed && !allSucceeded
+        ? { note: `${succeededCount} of ${TARGET_MIXES.length} mixes generated — the rest will fill in on a future refresh.` }
+        : {}),
     };
 
-    if (playlists.length > 0) {
-      // Shared across every visitor for 24h — the first request of the day
-      // triggers generation, everyone else for the rest of that day gets
-      // this identical cached response, at zero extra Gemini calls.
+    if (allSucceeded) {
+      // Only lock in a full 24h cache once every mix actually succeeded —
+      // shared across every visitor for the day, at zero extra Gemini calls.
       res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=3600");
+    } else if (playlists.length > 0) {
+      // Partial result (e.g. some mixes hit a rate limit): still worth
+      // showing, but only cache briefly so the next request soon after
+      // gets a chance to fill in the missing mixes instead of an
+      // incomplete set getting stuck for a full day.
+      res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=60");
     } else {
       res.setHeader("Cache-Control", "no-store");
     }

@@ -5,7 +5,12 @@
 // deployment bundling for standalone API functions.
 import { fetchLibrary, HFTrackDescriptor } from "./hf";
 
-const GEMINI_MODEL = "gemini-3.6-flash";
+// gemini-2.5-flash leads the list because its free-tier quota is far more
+// generous (10-15 RPM / 250-1500 RPD) than gemini-3.6-flash's, which is
+// only 5 RPM / 20 RPD on the free tier — confirmed directly by the 429
+// RESOURCE_EXHAUSTED errors seen in production logs. 3.6/3.5 stay as
+// fallbacks for accounts with paid quota on the newer models.
+const MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-3.5-flash"];
 const MIN_TRACKS_PER_MIX = 2;
 
 const TARGET_MIXES: { name: string; emoji: string; hint: string; description: string }[] = [
@@ -44,39 +49,49 @@ async function classifyOneMix(
   apiKey: string,
   timeoutMs = 15000
 ): Promise<number[] | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: "POST",
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: buildSingleMixPrompt(songList, mix.hint) }] }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: SINGLE_MIX_SCHEMA,
-            temperature: 0.2,
-          },
-        }),
+  const RETRYABLE_STATUSES = new Set([404, 429, 500, 502, 503, 504]);
+
+  for (const model of MODEL_CANDIDATES) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          signal: controller.signal,
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: buildSingleMixPrompt(songList, mix.hint) }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              responseSchema: SINGLE_MIX_SCHEMA,
+              temperature: 0.2,
+            },
+          }),
+        }
+      );
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        console.error(`Gemini error for "${mix.name}" on ${model}:`, res.status, errText);
+        if (RETRYABLE_STATUSES.has(res.status)) continue; // different model = independent quota bucket
+        return null;
       }
-    );
-    if (!res.ok) {
-      console.error(`Gemini error for "${mix.name}":`, res.status, await res.text().catch(() => ""));
-      return null;
+
+      const data = await res.json();
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      const parsed = JSON.parse(rawText);
+      return Array.isArray(parsed.indices) ? parsed.indices : [];
+    } catch (e: any) {
+      clearTimeout(timer);
+      console.error(`"${mix.name}" on ${model} failed:`, e?.name === "AbortError" ? "timed out" : e?.message);
+      continue;
     }
-    const data = await res.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    const parsed = JSON.parse(rawText);
-    return Array.isArray(parsed.indices) ? parsed.indices : [];
-  } catch (e: any) {
-    console.error(`"${mix.name}" classification failed:`, e?.name === "AbortError" ? "timed out" : e?.message);
-    return null;
-  } finally {
-    clearTimeout(timer);
   }
+
+  return null;
 }
 
 export async function generateAiPlaylists(apiKey?: string): Promise<AiPlaylistsResult> {
